@@ -1,0 +1,7 @@
+// Create Constraints
+CREATE CONSTRAINT title_tconst IF NOT EXISTS FOR (t:Title) REQUIRE t.tconst IS UNIQUE;
+CREATE CONSTRAINT person_nconst IF NOT EXISTS FOR (p:Person) REQUIRE p.nconst IS UNIQUE;
+CREATE CONSTRAINT genre_name IF NOT EXISTS FOR (g:Genre) REQUIRE g.name IS UNIQUE;
+
+// Create Indices to optimize queries
+CREATE INDEX title_year IF NOT EXISTS FOR (t:Title) ON (t.startYear);

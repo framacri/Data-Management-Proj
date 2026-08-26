@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres_imdb
+    environment:
+      POSTGRES_USER: imdb
+      POSTGRES_PASSWORD: imdbpassword
+      POSTGRES_DB: imdb
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./data:/data # Map local data folder for easy loading
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5.12
+    container_name: neo4j_imdb
+    environment:
+      NEO4J_AUTH: neo4j/imdbpassword
+      # Configure memory for bulk loading and queries
+      NEO4J_server_memory_heap_initial__size: 512M
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+      NEO4JLABS_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474" # HTTP
+      - "7687:7687" # Bolt
+    volumes:
+      - neo4jdata:/data
+      - ./data:/var/lib/neo4j/import # Map for LOAD CSV
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  neo4jdata:
