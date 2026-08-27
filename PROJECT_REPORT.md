@@ -30,6 +30,32 @@ Because the raw IMDb dataset contains tens of millions of rows (including TV epi
 - **Symmetry**: The `characters` and `job` columns are dropped from **both** targets. No query uses them, and keeping them only on the relational side would have made PostgreSQL scan much wider tuples than the two-column edges Neo4j reads.
 - **Referential integrity**: Principals whose `nconst` is absent from `name.basics` are dropped upstream. Previously they were kept by PostgreSQL and silently discarded by Neo4j (the `MATCH` on the Person node simply found nothing), so the two databases held different data.
 
+### 3.3. The dataset that was actually loaded
+
+Filters: `titleType == 'movie'`, `startYear > 1990`, `numVotes >= 1000`. Counts below are the
+output of `scripts/verify_counts.py`, which reads both databases and fails if they disagree —
+they are measured, not estimated.
+
+| Entity | PostgreSQL | Neo4j |
+|---|---:|---:|
+| Titles / `:Title` | 36,711 | 36,711 |
+| Persons / `:Person` | 268,541 | 268,541 |
+| Genres / `:Genre` | 24 | 24 |
+| Title–genre links / `HAS_GENRE` | 84,666 | 84,666 |
+| Acting roles / `ACTED_IN` | 337,894 | 337,894 |
+| Directing roles / `DIRECTED` | 39,774 | 39,774 |
+| Other crew roles / `WORKED_ON` | 360,502 | 360,502 |
+| **Person–title links, total** | **738,170** | **738,170** |
+
+Two integrity checks also hold: zero principals with a `nconst` absent from `Persons`, and zero
+titles without a rating.
+
+*Discrepancy with the submitted proposal.* The proposal estimated ~200,000 titles and
+~3,000,000 person–title relationships, an overestimate of roughly one order of magnitude made
+before the filters were applied to the real files. The working set is ~37k titles and ~738k
+links — still large enough for the performance differences to be meaningful, and small enough
+to reload in minutes across three dataset sizes.
+
 ## 4. Relational Implementation (PostgreSQL)
 
 ### 4.1. Schema Design
