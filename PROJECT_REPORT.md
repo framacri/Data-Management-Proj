@@ -24,8 +24,8 @@ The pipeline automatically downloads the latest `.tsv.gz` files directly from IM
 
 ### 3.2. Preprocessing (`preprocess_data.py`)
 Because the raw IMDb dataset contains tens of millions of rows (including TV episodes, shorts, and video games), the data was filtered to create a focused, high-quality analytical dataset:
-- **Filtering**: Limited to `titleType == 'movie'`.
-- **Quality Control**: Included only movies released after 1990 with at least 1,000 votes.
+- **Filtering**: `titleType == 'movie'`.
+- **Quality Control**: `startYear > 1990` — note the strict inequality, so 1990 itself is excluded, matching the proposal's *released after 1990* — and `numVotes >= 1000`. The vote threshold is a parameter (`--min-votes`), which is what makes the scaling experiment possible.
 - **Data Cleaning**: Strict type enforcement (`Int64`) was applied to years and runtimes to prevent floating-point anomalies (e.g., `2001.0`) that cause strict relational databases to fail during bulk ingestion. 
 - **Symmetry**: The `characters` and `job` columns are dropped from **both** targets. No query uses them, and keeping them only on the relational side would have made PostgreSQL scan much wider tuples than the two-column edges Neo4j reads.
 - **Referential integrity**: Principals whose `nconst` is absent from `name.basics` are dropped upstream. Previously they were kept by PostgreSQL and silently discarded by Neo4j (the `MATCH` on the Person node simply found nothing), so the two databases held different data.

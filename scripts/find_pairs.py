@@ -15,11 +15,14 @@ import os
 
 from neo4j import GraphDatabase
 
-NEO4J_URI = "neo4j://localhost:7687"
-NEO4J_AUTH = ("neo4j", "imdbpassword")
+from config import NEO4J_URI, NEO4J_AUTH, ANALYSIS_DIR, DEFAULT_MIN_VOTES
 
 KEVIN_BACON = "nm0000102"
-OUT_PATH = os.path.join("analysis", "pairs.json")
+
+
+def pairs_path(min_votes):
+    """Un file per soglia: cambiando la dimensione del grafo cambiano le distanze."""
+    return os.path.join(ANALYSIS_DIR, f"pairs_mv{min_votes}.json")
 
 SAMPLE = """
 MATCH (p:Person)-[:ACTED_IN]->(:Title)
@@ -43,6 +46,8 @@ def main():
     parser.add_argument("--stride", type=int, default=137,
                         help="passo del campionamento deterministico dei candidati")
     parser.add_argument("--max-distance", type=int, default=4)
+    parser.add_argument("--min-votes", type=int, default=DEFAULT_MIN_VOTES,
+                        help="soglia del dataset caricato: etichetta il file di output")
     args = parser.parse_args()
 
     driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
@@ -82,13 +87,15 @@ def main():
               f"Riprova con --stride piu' piccolo per campionare piu' attori.")
 
     pairs = {
+        "min_votes": args.min_votes,
         "source": {"nconst": args.src, "name": src_name},
         "targets": [found[d] for d in sorted(found)],
     }
-    os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
-    with open(OUT_PATH, "w") as f:
+    out_path = pairs_path(args.min_votes)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
         json.dump(pairs, f, indent=2, ensure_ascii=False)
-    print(f"\nScritto {OUT_PATH} con {len(found)} coppie.")
+    print(f"\nScritto {out_path} con {len(found)} coppie.")
 
 
 if __name__ == "__main__":

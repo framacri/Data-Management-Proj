@@ -30,15 +30,12 @@ from psycopg2 import errors as pg_errors
 from neo4j import GraphDatabase, Query
 from neo4j.exceptions import Neo4jError
 
-PG = dict(host="localhost", port="15432", user="imdb", password="imdbpassword", dbname="imdb")
-NEO4J_URI = "neo4j://localhost:7687"
-NEO4J_AUTH = ("neo4j", "imdbpassword")
+from config import POSTGRES as PG, NEO4J_URI, NEO4J_AUTH, DEFAULT_MIN_VOTES
 
 PG_QUERY_DIR = os.path.join("postgres", "queries")
 NEO4J_QUERY_DIR = os.path.join("neo4j", "queries")
 RESULTS_CSV = os.path.join("analysis", "results.csv")
 PLANS_DIR = os.path.join("analysis", "plans")
-PAIRS_PATH = os.path.join("analysis", "pairs.json")
 
 THE_MATRIX = "tt0133093"
 TIMEOUT_SENTINEL = "timeout"
@@ -233,9 +230,10 @@ def check_agreement(case, pg_result, n4_result):
 # piani di esecuzione                                                          #
 # --------------------------------------------------------------------------- #
 
-def capture_plans(cases, conn, session):
-    os.makedirs(PLANS_DIR, exist_ok=True)
-    print(f"\n{'=' * 72}\nPiani di esecuzione -> {PLANS_DIR}/\n{'=' * 72}")
+def capture_plans(cases, conn, session, min_votes):
+    out_dir = os.path.join(PLANS_DIR, f"mv{min_votes}")
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"\n{'=' * 72}\nPiani di esecuzione -> {out_dir}/\n{'=' * 72}")
 
     for case in cases:
         stem = case["case"]
@@ -249,7 +247,7 @@ def capture_plans(cases, conn, session):
                 conn.rollback()
                 plan = "-- query annullata per timeout"
         conn.commit()
-        with open(os.path.join(PLANS_DIR, f"{stem}.postgresql.txt"), "w") as f:
+        with open(os.path.join(out_dir, f"{stem}.postgresql.txt"), "w") as f:
             f.write(plan + "\n")
 
         try:
@@ -257,7 +255,7 @@ def capture_plans(cases, conn, session):
             profile = str(result.consume().profile)
         except Neo4jError as exc:
             profile = f"// query fallita o annullata: {exc}"
-        with open(os.path.join(PLANS_DIR, f"{stem}.neo4j.txt"), "w") as f:
+        with open(os.path.join(out_dir, f"{stem}.neo4j.txt"), "w") as f:
             f.write(profile + "\n")
 
         print(f"  {stem}")
@@ -323,9 +321,11 @@ def build_cases(args):
 
 
 def load_pairs(args):
-    if not os.path.exists(PAIRS_PATH):
-        sys.exit(f"{PAIRS_PATH} non trovato — esegui prima: python scripts/find_pairs.py")
-    with open(PAIRS_PATH) as f:
+    path = os.path.join("analysis", f"pairs_mv{args.min_votes}.json")
+    if not os.path.exists(path):
+        sys.exit(f"{path} non trovato — esegui prima: "
+                 f"python scripts/find_pairs.py --min-votes {args.min_votes}")
+    with open(path) as f:
         pairs = json.load(f)
     args.source = pairs["source"]["nconst"]
     args.source_name = pairs["source"]["name"]
@@ -339,8 +339,12 @@ def main():
     parser.add_argument("--runs", type=int, default=10, help="esecuzioni cronometrate per query")
     parser.add_argument("--warmup", type=int, default=2, help="esecuzioni di riscaldamento, non registrate")
     parser.add_argument("--timeout", type=int, default=300, help="timeout per query, in secondi")
-    parser.add_argument("--min-votes", type=int, default=1000,
-                        help="soglia di voti del dataset caricato, registrata nel CSV")
+    parser.add_argument("--min-votes", type=int, default=DEFAULT_MIN_VOTES,
+                        help="soglia di voti del dataset caricato: seleziona il file di coppie "
+                             "e etichetta le righe del CSV")
+    parser.add_argument("--append", action="store_true",
+                        help="accoda a results.csv invece di sovrascriverlo, per confrontare "
+                             "piu' soglie nello stesso file")
     parser.add_argument("--tconst", default=THE_MATRIX, help="titolo di partenza per la Q4")
     parser.add_argument("--show", type=int, default=5, help="righe di risultato da stampare")
     parser.add_argument("--no-plans", action="store_true", help="salta la cattura dei piani")
@@ -360,16 +364,18 @@ def main():
     fieldnames = ["query", "case", "system", "run", "seconds", "rows", "min_votes", "note"]
 
     mismatches = []
-    with open(RESULTS_CSV, "w", newline="") as f, driver.session() as session:
+    append = args.append and os.path.exists(RESULTS_CSV)
+    with open(RESULTS_CSV, "a" if append else "w", newline="") as f, driver.session() as session:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
+        if not append:
+            writer.writeheader()
 
         for case in cases:
             if not run_case(case, conn, session, args, writer):
                 mismatches.append(case["case"])
 
         if not args.no_plans:
-            capture_plans(cases, conn, session)
+            capture_plans(cases, conn, session, args.min_votes)
 
     conn.close()
     driver.close()

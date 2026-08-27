@@ -27,8 +27,11 @@ Lorenzo Ventrone (1802393) · Francesco Macrì (2055851)
 ### 1 · Avviare i database
 
 ```bash
-docker-compose up -d
+docker compose up -d --wait
 ```
+
+`--wait` sfrutta gli healthcheck definiti nel compose e ritorna solo quando entrambi i database
+accettano connessioni: senza, i loader lanciati subito dopo falliscono.
 
 - Neo4j Browser: http://localhost:7474 — `neo4j` / `imdbpassword`
 - PostgreSQL: `localhost:15432` — utente `imdb`, password `imdbpassword`, database `imdb`
@@ -36,8 +39,6 @@ docker-compose up -d
 Entrambi i motori sono configurati con memoria comparabile nel compose: senza questo, Postgres
 girerebbe con `work_mem` a 4MB contro 1GB di page cache per Neo4j, e il benchmark misurerebbe
 la configurazione invece dell'architettura.
-
-Attendere che i container siano pronti prima di procedere (una decina di secondi).
 
 ### 2 · Ambiente Python
 
@@ -59,9 +60,13 @@ Filtro applicato: `titleType == 'movie'`, `startYear > 1990`, `numVotes >= 1000`
 ### 4 · Caricare
 
 ```bash
-python scripts/load_postgres.py
-python scripts/load_neo4j.py
+python scripts/load_postgres.py --min-votes 1000
+python scripts/load_neo4j.py    --min-votes 1000 --reset
 ```
+
+`--reset` svuota Neo4j prima di caricare. **Serve davvero**: il caricamento usa `MERGE`, quindi
+senza svuotare i dati di un caricamento precedente resterebbero nel grafo e si sommerebbero ai
+nuovi. Postgres non ne ha bisogno perché `schema.sql` ricrea le tabelle.
 
 ### 5 · Verificare che i due database siano allineati
 
@@ -76,16 +81,27 @@ misura di performance confronta carichi di lavoro diversi.
 ### 6 · Misurare
 
 ```bash
-python scripts/find_pairs.py                     # coppie di attori a distanza 1-4
-python scripts/benchmark.py --runs 10 --warmup 2
+python scripts/find_pairs.py --min-votes 1000                      # coppie a distanza 1-4
+python scripts/benchmark.py  --min-votes 1000 --runs 10 --warmup 2
+python scripts/summarize_results.py                                # tabelle per il report
 ```
 
 Il benchmark scrive `analysis/results.csv` (una riga per run) e i piani di esecuzione in
-`analysis/plans/`. Esce con codice diverso da 0 se le due implementazioni di una query
-restituiscono risultati diversi.
+`analysis/plans/mv<soglia>/`. Esce con codice diverso da 0 se le due implementazioni di una
+query restituiscono risultati diversi.
 
-Opzioni utili: `--timeout` (default 300 s), `--min-votes` (etichetta della soglia nel CSV),
+Opzioni utili: `--timeout` (default 300 s), `--append` (accoda invece di sovrascrivere),
 `--no-plans`, `--show`.
+
+### 7 · Asse della scala (opzionale)
+
+```bash
+bash scripts/run_scale.sh
+```
+
+Rifà l'intera pipeline a tre soglie (≥10.000, ≥1.000, ≥100 voti) accumulando tutto in un unico
+`results.csv`, così i tempi si possono riportare come curve invece che come numeri singoli.
+Richiede diverse ore. Si ferma da solo se `verify_counts.py` fallisce a una qualsiasi soglia.
 
 ## Le query
 
@@ -103,8 +119,10 @@ limite di profondità esplicito.
 ## Struttura
 
 ```
-scripts/          download, preprocess, load, verify, find_pairs, benchmark
+scripts/          config, download, preprocess, load_*, verify_counts,
+                  find_pairs, benchmark, summarize_results, run_scale.sh
 postgres/queries/ le quattro query in SQL
 neo4j/queries/    le stesse quattro query in Cypher
-analysis/         results.csv, plans/, pairs.json, baseline_pre_fix.md
+data/mv<soglia>/  i CSV generati, una cartella per dimensione del dataset
+analysis/         results.csv, plans/, pairs_mv*.json, baseline_pre_fix.md
 ```

@@ -1,7 +1,9 @@
-import pandas as pd
+import argparse
 import os
 
-DATA_DIR = "data"
+import pandas as pd
+
+from config import DATA_DIR, DEFAULT_MIN_VOTES, data_path, data_subdir
 
 # Categorie IMDb mappate sui tipi di relazione Neo4j.
 # 'self' e' escluso da ACTED_IN: sono apparizioni in documentari e talk show,
@@ -9,7 +11,19 @@ DATA_DIR = "data"
 ACTING_CATEGORIES = ['actor', 'actress']
 DIRECTING_CATEGORIES = ['director']
 
-def process_data():
+def process_data(min_votes):
+    # I TSV sorgente restano nella radice di data/; i CSV generati vanno in una
+    # sottocartella per soglia, cosi' piu' dimensioni del dataset convivono senza
+    # sovrascriversi. Devono comunque restare sotto data/, che il compose monta
+    # come cartella di import di Neo4j.
+    out_dir = os.path.join(DATA_DIR, data_subdir(min_votes))
+    os.makedirs(out_dir, exist_ok=True)
+
+    def out(filename):
+        return data_path(min_votes, filename)
+
+    print(f"Soglia di voti: >= {min_votes}  ->  {out_dir}/")
+
     print("Loading title.basics.tsv...")
     titles = pd.read_csv(os.path.join(DATA_DIR, "title.basics.tsv"), sep='\t', na_values='\\N', low_memory=False)
 
@@ -21,10 +35,12 @@ def process_data():
     movies['startYear'] = pd.to_numeric(movies['startYear'], errors='coerce').astype('Int64')
     movies['endYear'] = pd.to_numeric(movies['endYear'], errors='coerce').astype('Int64')
     movies['runtimeMinutes'] = pd.to_numeric(movies['runtimeMinutes'], errors='coerce').astype('Int64')
+    # '> 1990' e non '>= 1990': il 1990 stesso e' escluso. Criterio dichiarato
+    # nella proposta come "released after 1990".
     movies = movies[movies['startYear'] > 1990]
 
     print("Filtering ratings...")
-    ratings = ratings[ratings['numVotes'] >= 1000].copy()
+    ratings = ratings[ratings['numVotes'] >= min_votes].copy()
     ratings['numVotes'] = ratings['numVotes'].astype('Int64')
 
     target_movies = pd.merge(movies, ratings, on='tconst', how='inner')
@@ -43,7 +59,10 @@ def process_data():
                 all_genres.add(genre)
                 title_genres.append({'tconst': tconst, 'name': genre})
 
-    genres_df = pd.DataFrame({'name': list(all_genres)})
+    # sorted() e non list(): l'iterazione di un set Python dipende dall'hash
+    # randomization, quindi senza ordinamento i genre_id cambierebbero a ogni
+    # esecuzione e due caricamenti dello stesso dataset non sarebbero confrontabili.
+    genres_df = pd.DataFrame({'name': sorted(all_genres)})
     genres_df['genre_id'] = range(1, len(genres_df) + 1)
 
     title_genres_df = pd.DataFrame(title_genres)
@@ -51,15 +70,15 @@ def process_data():
 
     # Save Relational Entities
     print("Saving postgres entities...")
-    target_movies[['tconst', 'titleType', 'primaryTitle', 'originalTitle', 'isAdult', 'startYear', 'endYear', 'runtimeMinutes', 'averageRating', 'numVotes']].to_csv(os.path.join(DATA_DIR, "pg_titles.csv"), index=False)
-    genres_df[['genre_id', 'name']].to_csv(os.path.join(DATA_DIR, "pg_genres.csv"), index=False)
-    title_genres_df[['tconst', 'genre_id']].to_csv(os.path.join(DATA_DIR, "pg_title_genres.csv"), index=False)
+    target_movies[['tconst', 'titleType', 'primaryTitle', 'originalTitle', 'isAdult', 'startYear', 'endYear', 'runtimeMinutes', 'averageRating', 'numVotes']].to_csv(out("pg_titles.csv"), index=False)
+    genres_df[['genre_id', 'name']].to_csv(out("pg_genres.csv"), index=False)
+    title_genres_df[['tconst', 'genre_id']].to_csv(out("pg_title_genres.csv"), index=False)
 
     # Save Neo4j Nodes/Edges
     print("Saving neo4j entities (Titles and Genres)...")
-    target_movies[['tconst', 'primaryTitle', 'startYear', 'runtimeMinutes', 'averageRating', 'numVotes']].to_csv(os.path.join(DATA_DIR, "neo4j_nodes_titles.csv"), index=False)
-    genres_df[['name']].to_csv(os.path.join(DATA_DIR, "neo4j_nodes_genres.csv"), index=False)
-    title_genres_df[['tconst', 'name']].rename(columns={'name': 'genre_name'}).to_csv(os.path.join(DATA_DIR, "neo4j_edges_has_genre.csv"), index=False)
+    target_movies[['tconst', 'primaryTitle', 'startYear', 'runtimeMinutes', 'averageRating', 'numVotes']].to_csv(out("neo4j_nodes_titles.csv"), index=False)
+    genres_df[['name']].to_csv(out("neo4j_nodes_genres.csv"), index=False)
+    title_genres_df[['tconst', 'name']].rename(columns={'name': 'genre_name'}).to_csv(out("neo4j_edges_has_genre.csv"), index=False)
 
     # Process Principals (Actors, Directors, etc.)
     print("Loading and filtering title.principals.tsv...")
@@ -101,14 +120,14 @@ def process_data():
     print(f"Dropped {dropped} principals with dangling nconst ({before} -> {len(final_principals)})")
 
     print("Saving postgres entities...")
-    final_names[['nconst', 'primaryName', 'birthYear', 'deathYear']].to_csv(os.path.join(DATA_DIR, "pg_persons.csv"), index=False)
+    final_names[['nconst', 'primaryName', 'birthYear', 'deathYear']].to_csv(out("pg_persons.csv"), index=False)
     # 'job' e 'characters' sono esclusi: nessuna query li usa, sono TEXT larghi
     # che Postgres dovrebbe scansionare mentre gli archi Neo4j pesano due colonne.
     # Tenerli darebbe a Neo4j un vantaggio di payload per riga.
-    final_principals[['tconst', 'nconst', 'ordering', 'category']].to_csv(os.path.join(DATA_DIR, "pg_principals.csv"), index=False)
+    final_principals[['tconst', 'nconst', 'ordering', 'category']].to_csv(out("pg_principals.csv"), index=False)
 
     print("Saving neo4j entities (Nodes)...")
-    final_names[['nconst', 'primaryName', 'birthYear']].to_csv(os.path.join(DATA_DIR, "neo4j_nodes_persons.csv"), index=False)
+    final_names[['nconst', 'primaryName', 'birthYear']].to_csv(out("neo4j_nodes_persons.csv"), index=False)
 
     print("Saving neo4j entities (Edges)...")
     # Gli archi derivano dallo STESSO final_principals che alimenta Postgres:
@@ -119,9 +138,9 @@ def process_data():
     directed = final_principals[final_principals['category'].isin(DIRECTING_CATEGORIES)]
     worked_on = final_principals[~final_principals['category'].isin(ACTING_CATEGORIES + DIRECTING_CATEGORIES)]
 
-    acted_in[['nconst', 'tconst', 'ordering']].to_csv(os.path.join(DATA_DIR, "neo4j_edges_acted_in.csv"), index=False)
-    directed[['nconst', 'tconst']].to_csv(os.path.join(DATA_DIR, "neo4j_edges_directed.csv"), index=False)
-    worked_on[['nconst', 'tconst', 'category']].to_csv(os.path.join(DATA_DIR, "neo4j_edges_worked_on.csv"), index=False)
+    acted_in[['nconst', 'tconst', 'ordering']].to_csv(out("neo4j_edges_acted_in.csv"), index=False)
+    directed[['nconst', 'tconst']].to_csv(out("neo4j_edges_directed.csv"), index=False)
+    worked_on[['nconst', 'tconst', 'category']].to_csv(out("neo4j_edges_worked_on.csv"), index=False)
 
     print(f"  ACTED_IN  : {len(acted_in)}")
     print(f"  DIRECTED  : {len(directed)}")
@@ -132,4 +151,8 @@ def process_data():
     print("Preprocessing complete!")
 
 if __name__ == "__main__":
-    process_data()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--min-votes", type=int, default=DEFAULT_MIN_VOTES,
+                        help="numero minimo di voti perche' un film entri nel working set")
+    args = parser.parse_args()
+    process_data(args.min_votes)

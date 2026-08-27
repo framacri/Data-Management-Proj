@@ -13,9 +13,7 @@ import sys
 import psycopg2
 from neo4j import GraphDatabase
 
-PG = dict(host="localhost", port="15432", user="imdb", password="imdbpassword", dbname="imdb")
-NEO4J_URI = "neo4j://localhost:7687"
-NEO4J_AUTH = ("neo4j", "imdbpassword")
+from config import POSTGRES as PG, NEO4J_URI, NEO4J_AUTH
 
 ACTING = "('actor', 'actress')"
 DIRECTING = "('director')"
