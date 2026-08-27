@@ -1,33 +1,33 @@
-Aggregate  (cost=477.41..477.42 rows=1 width=4) (actual time=0.691..0.692 rows=1 loops=1)
+Aggregate  (cost=476.14..476.15 rows=1 width=4) (actual time=0.288..0.289 rows=1 loops=1)
   Buffers: shared hit=218
   CTE bfs
-    ->  Recursive Union  (cost=0.00..451.05 rows=1171 width=36) (actual time=0.003..0.625 rows=355 loops=1)
+    ->  Recursive Union  (cost=0.00..450.23 rows=1151 width=36) (actual time=0.001..0.260 rows=355 loops=1)
           Buffers: shared hit=218
-          ->  Result  (cost=0.00..0.01 rows=1 width=36) (actual time=0.001..0.001 rows=1 loops=1)
-          ->  Nested Loop  (cost=0.85..42.76 rows=117 width=14) (actual time=0.023..0.259 rows=189 loops=2)
+          ->  Result  (cost=0.00..0.01 rows=1 width=36) (actual time=0.000..0.000 rows=1 loops=1)
+          ->  Nested Loop  (cost=0.85..42.72 rows=115 width=14) (actual time=0.007..0.112 rows=189 loops=2)
                 Join Filter: ((tp2.nconst)::text <> (b.nconst)::text)
                 Rows Removed by Join Filter: 22
                 Buffers: shared hit=218
-                ->  Nested Loop  (cost=0.42..30.57 rows=12 width=46) (actual time=0.019..0.049 rows=21 loops=2)
+                ->  Nested Loop  (cost=0.42..30.54 rows=12 width=46) (actual time=0.005..0.020 rows=21 loops=2)
                       Buffers: shared hit=47
-                      ->  WorkTable Scan on bfs b  (cost=0.00..0.22 rows=3 width=36) (actual time=0.008..0.008 rows=0 loops=2)
+                      ->  WorkTable Scan on bfs b  (cost=0.00..0.22 rows=3 width=36) (actual time=0.003..0.003 rows=0 loops=2)
                             Filter: (depth < 1)
                             Rows Removed by Filter: 177
-                      ->  Index Scan using idx_principals_nconst on title_principals tp1  (cost=0.42..10.08 rows=4 width=20) (actual time=0.021..0.076 rows=42 loops=1)
+                      ->  Index Scan using idx_principals_nconst on title_principals tp1  (cost=0.42..10.06 rows=4 width=20) (actual time=0.005..0.032 rows=42 loops=1)
                             Index Cond: ((nconst)::text = (b.nconst)::text)
                             Filter: ((category)::text = ANY ('{actor,actress}'::text[]))
                             Rows Removed by Filter: 7
                             Buffers: shared hit=47
-                ->  Index Scan using idx_principals_tconst on title_principals tp2  (cost=0.42..0.87 rows=10 width=20) (actual time=0.005..0.009 rows=10 loops=42)
+                ->  Index Scan using idx_principals_tconst on title_principals tp2  (cost=0.42..0.87 rows=10 width=20) (actual time=0.002..0.004 rows=10 loops=42)
                       Index Cond: ((tconst)::text = (tp1.tconst)::text)
                       Filter: ((category)::text = ANY ('{actor,actress}'::text[]))
                       Rows Removed by Filter: 12
                       Buffers: shared hit=171
-  ->  CTE Scan on bfs  (cost=0.00..26.35 rows=6 width=4) (actual time=0.474..0.688 rows=1 loops=1)
+  ->  CTE Scan on bfs  (cost=0.00..25.90 rows=6 width=4) (actual time=0.202..0.287 rows=1 loops=1)
         Filter: ((nconst)::text = 'nm1534888'::text)
         Rows Removed by Filter: 354
         Buffers: shared hit=218
 Planning:
   Buffers: shared hit=32
-Planning Time: 0.383 ms
-Execution Time: 0.744 ms
+Planning Time: 0.147 ms
+Execution Time: 0.300 ms

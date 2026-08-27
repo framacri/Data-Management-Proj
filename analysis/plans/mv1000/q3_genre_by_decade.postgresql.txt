@@ -1,36 +1,36 @@
-Limit  (cost=2744.36..2744.39 rows=10 width=258) (actual time=17.391..17.394 rows=10 loops=1)
+Limit  (cost=2729.99..2730.01 rows=8 width=47) (actual time=15.817..15.819 rows=10 loops=1)
   Buffers: shared hit=2502
-  ->  Sort  (cost=2744.36..2744.63 rows=107 width=258) (actual time=17.389..17.392 rows=10 loops=1)
+  ->  Sort  (cost=2729.99..2730.01 rows=8 width=47) (actual time=15.817..15.818 rows=10 loops=1)
         Sort Key: (round(avg(t.averagerating), 3)) DESC, g.name
         Sort Method: top-N heapsort  Memory: 26kB
         Buffers: shared hit=2502
-        ->  HashAggregate  (cost=2736.98..2742.05 rows=107 width=258) (actual time=17.374..17.384 rows=21 loops=1)
+        ->  HashAggregate  (cost=2729.49..2729.87 rows=8 width=47) (actual time=15.805..15.811 rows=21 loops=1)
               Group Key: g.name
               Filter: (count(*) >= 50)
-              Batches: 1  Memory Usage: 45kB
+              Batches: 1  Memory Usage: 32kB
               Rows Removed by Filter: 1
               Buffers: shared hit=2502
-              ->  Hash Join  (cost=869.92..2485.90 rows=33478 width=224) (actual time=2.313..14.042 rows=33457 loops=1)
+              ->  Hash Join  (cost=850.13..2479.86 rows=33284 width=13) (actual time=2.330..12.710 rows=33457 loops=1)
                     Hash Cond: (tg.genre_id = g.genre_id)
                     Buffers: shared hit=2502
-                    ->  Hash Join  (cost=852.72..2379.65 rows=33478 width=10) (actual time=2.304..11.387 rows=33457 loops=1)
+                    ->  Hash Join  (cost=848.59..2375.52 rows=33284 width=10) (actual time=2.318..10.419 rows=33457 loops=1)
                           Hash Cond: ((tg.tconst)::text = (t.tconst)::text)
                           Buffers: shared hit=2501
-                          ->  Seq Scan on title_genres tg  (cost=0.00..1304.66 rows=84666 width=14) (actual time=0.002..2.667 rows=84666 loops=1)
+                          ->  Seq Scan on title_genres tg  (cost=0.00..1304.66 rows=84666 width=14) (actual time=0.001..2.435 rows=84666 loops=1)
                                 Buffers: shared hit=458
-                          ->  Hash  (cost=671.27..671.27 rows=14516 width=16) (actual time=2.299..2.299 rows=14501 loops=1)
+                          ->  Hash  (cost=668.19..668.19 rows=14432 width=16) (actual time=2.313..2.313 rows=14501 loops=1)
                                 Buckets: 16384  Batches: 1  Memory Usage: 820kB
                                 Buffers: shared hit=2043
-                                ->  Index Scan using idx_titles_startyear on titles t  (cost=0.29..671.27 rows=14516 width=16) (actual time=0.006..1.488 rows=14501 loops=1)
+                                ->  Index Scan using idx_titles_startyear on titles t  (cost=0.29..668.19 rows=14432 width=16) (actual time=0.006..1.499 rows=14501 loops=1)
                                       Index Cond: ((startyear >= 2010) AND (startyear < 2020))
                                       Filter: (averagerating IS NOT NULL)
                                       Buffers: shared hit=2043
-                    ->  Hash  (cost=13.20..13.20 rows=320 width=222) (actual time=0.007..0.007 rows=24 loops=1)
+                    ->  Hash  (cost=1.24..1.24 rows=24 width=11) (actual time=0.009..0.010 rows=24 loops=1)
                           Buckets: 1024  Batches: 1  Memory Usage: 10kB
                           Buffers: shared hit=1
-                          ->  Seq Scan on genres g  (cost=0.00..13.20 rows=320 width=222) (actual time=0.003..0.004 rows=24 loops=1)
+                          ->  Seq Scan on genres g  (cost=0.00..1.24 rows=24 width=11) (actual time=0.006..0.007 rows=24 loops=1)
                                 Buffers: shared hit=1
 Planning:
-  Buffers: shared hit=24
-Planning Time: 0.185 ms
-Execution Time: 17.417 ms
+  Buffers: shared hit=28
+Planning Time: 0.173 ms
+Execution Time: 15.838 ms

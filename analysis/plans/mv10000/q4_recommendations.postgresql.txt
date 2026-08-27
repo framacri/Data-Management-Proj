@@ -1,24 +1,24 @@
-Limit  (cost=244.24..244.26 rows=10 width=33) (actual time=1.174..1.175 rows=10 loops=1)
+Limit  (cost=247.66..247.69 rows=10 width=33) (actual time=1.130..1.132 rows=10 loops=1)
   Buffers: shared hit=1660
-  ->  Sort  (cost=244.24..244.79 rows=219 width=33) (actual time=1.173..1.173 rows=10 loops=1)
+  ->  Sort  (cost=247.66..248.23 rows=227 width=33) (actual time=1.129..1.130 rows=10 loops=1)
         Sort Key: (count(DISTINCT tp2.nconst)) DESC, t2.tconst
         Sort Method: top-N heapsort  Memory: 25kB
         Buffers: shared hit=1660
-        ->  GroupAggregate  (cost=235.67..239.51 rows=219 width=33) (actual time=1.017..1.142 rows=281 loops=1)
+        ->  GroupAggregate  (cost=238.78..242.76 rows=227 width=33) (actual time=0.970..1.093 rows=281 loops=1)
               Group Key: t2.tconst
               Buffers: shared hit=1660
-              ->  Sort  (cost=235.67..236.22 rows=219 width=35) (actual time=1.013..1.022 rows=407 loops=1)
+              ->  Sort  (cost=238.78..239.35 rows=227 width=35) (actual time=0.967..0.976 rows=407 loops=1)
                     Sort Key: t2.tconst
                     Sort Method: quicksort  Memory: 56kB
                     Buffers: shared hit=1660
-                    ->  Nested Loop  (cost=1.00..227.16 rows=219 width=35) (actual time=0.015..0.845 rows=407 loops=1)
+                    ->  Nested Loop  (cost=1.00..229.90 rows=227 width=35) (actual time=0.014..0.804 rows=407 loops=1)
                           Buffers: shared hit=1660
-                          ->  Nested Loop  (cost=0.71..160.72 rows=219 width=20) (actual time=0.012..0.285 rows=407 loops=1)
+                          ->  Nested Loop  (cost=0.71..161.03 rows=227 width=20) (actual time=0.011..0.268 rows=407 loops=1)
                                 Buffers: shared hit=439
                                 ->  Index Scan using idx_principals_tconst on title_principals tp1  (cost=0.29..2.88 rows=22 width=20) (actual time=0.005..0.006 rows=21 loops=1)
                                       Index Cond: ((tconst)::text = 'tt0133093'::text)
                                       Buffers: shared hit=3
-                                ->  Index Scan using idx_principals_nconst on title_principals tp2  (cost=0.42..7.11 rows=6 width=20) (actual time=0.003..0.012 rows=19 loops=21)
+                                ->  Index Scan using idx_principals_nconst on title_principals tp2  (cost=0.42..7.13 rows=6 width=20) (actual time=0.003..0.011 rows=19 loops=21)
                                       Index Cond: ((nconst)::text = (tp1.nconst)::text)
                                       Filter: ((tconst)::text <> (tp1.tconst)::text)
                                       Rows Removed by Filter: 1
@@ -27,6 +27,6 @@ Limit  (cost=244.24..244.26 rows=10 width=33) (actual time=1.174..1.175 rows=10 
                                 Index Cond: ((tconst)::text = (tp2.tconst)::text)
                                 Buffers: shared hit=1221
 Planning:
-  Buffers: shared hit=46
-Planning Time: 0.306 ms
-Execution Time: 1.189 ms
+  Buffers: shared hit=47
+Planning Time: 0.296 ms
+Execution Time: 1.147 ms

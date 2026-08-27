@@ -1,49 +1,49 @@
-Limit  (cost=793920.76..793920.79 rows=10 width=32) (actual time=8509.181..8509.249 rows=10 loops=1)
-  Buffers: shared hit=5412816
-  ->  Sort  (cost=793920.76..815074.41 rows=8461459 width=32) (actual time=8459.728..8459.796 rows=10 loops=1)
+Limit  (cost=778567.42..778567.45 rows=10 width=32) (actual time=8403.708..8403.754 rows=10 loops=1)
+  Buffers: shared hit=5414239
+  ->  Sort  (cost=778567.42..799093.30 rows=8210351 width=32) (actual time=8353.408..8353.453 rows=10 loops=1)
         Sort Key: (count(DISTINCT tp2.nconst)) DESC, tp1.nconst
         Sort Method: top-N heapsort  Memory: 26kB
-        Buffers: shared hit=5412816
-        ->  GroupAggregate  (cost=1001.37..611071.68 rows=8461459 width=32) (actual time=47.028..8430.982 rows=361224 loops=1)
+        Buffers: shared hit=5414239
+        ->  GroupAggregate  (cost=1119.19..601144.69 rows=8210351 width=32) (actual time=48.533..8326.271 rows=361224 loops=1)
               Group Key: tp1.nconst, p.primaryname
-              Buffers: shared hit=5412816
-              ->  Nested Loop  (cost=1001.37..462996.14 rows=8461459 width=34) (actual time=46.795..5711.343 rows=8240252 loops=1)
-                    Buffers: shared hit=5412816
-                    ->  Merge Join  (cost=1000.94..173460.02 rows=917175 width=34) (actual time=46.773..1235.675 rows=917222 loops=1)
+              Buffers: shared hit=5414239
+              ->  Nested Loop  (cost=1119.19..457463.55 rows=8210351 width=34) (actual time=48.280..5624.310 rows=8240252 loops=1)
+                    Buffers: shared hit=5414239
+                    ->  Merge Join  (cost=1118.75..173342.07 rows=908791 width=34) (actual time=48.262..1239.441 rows=917222 loops=1)
                           Merge Cond: ((p.nconst)::text = (tp1.nconst)::text)
-                          Buffers: shared hit=1702793
-                          ->  Gather Merge  (cost=1000.51..103698.78 rows=664143 width=24) (actual time=46.731..268.562 rows=664143 loops=1)
+                          Buffers: shared hit=1704216
+                          ->  Gather Merge  (cost=1000.51..103698.78 rows=664143 width=24) (actual time=48.218..275.184 rows=664143 loops=1)
                                 Workers Planned: 2
                                 Workers Launched: 2
-                                Buffers: shared hit=8119
-                                ->  Incremental Sort  (cost=0.48..26040.17 rows=276726 width=24) (actual time=22.767..74.425 rows=221381 loops=3)
+                                Buffers: shared hit=9542
+                                ->  Incremental Sort  (cost=0.48..26040.17 rows=276726 width=24) (actual time=27.047..78.285 rows=221381 loops=3)
                                       Sort Key: p.nconst, p.primaryname
                                       Presorted Key: p.nconst
                                       Full-sort Groups: 1958  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
-                                      Buffers: shared hit=8119
-                                      Worker 0:  Full-sort Groups: 9388  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
-                                      Worker 1:  Full-sort Groups: 9410  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
-                                      ->  Parallel Index Scan using persons_pkey on persons p  (cost=0.42..13587.50 rows=276726 width=24) (actual time=22.696..40.912 rows=221381 loops=3)
-                                            Buffers: shared hit=7945
-                          ->  Index Scan using idx_principals_nconst on title_principals tp1  (cost=0.43..56636.19 rows=917175 width=20) (actual time=0.027..785.844 rows=917222 loops=1)
+                                      Buffers: shared hit=9542
+                                      Worker 0:  Full-sort Groups: 9401  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+                                      Worker 1:  Full-sort Groups: 9396  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+                                      ->  Parallel Index Scan using persons_pkey on persons p  (cost=0.42..13587.50 rows=276726 width=24) (actual time=26.986..44.428 rows=221381 loops=3)
+                                            Buffers: shared hit=9368
+                          ->  Index Scan using idx_principals_nconst on title_principals tp1  (cost=0.43..56623.05 rows=908791 width=20) (actual time=0.028..782.490 rows=917222 loops=1)
                                 Filter: ((category)::text = ANY ('{actor,actress}'::text[]))
                                 Rows Removed by Filter: 1032416
                                 Buffers: shared hit=1694674
-                    ->  Memoize  (cost=0.44..0.91 rows=9 width=20) (actual time=0.002..0.004 rows=9 loops=917222)
+                    ->  Memoize  (cost=0.44..0.89 rows=9 width=20) (actual time=0.002..0.004 rows=9 loops=917222)
                           Cache Key: tp1.nconst, tp1.tconst
                           Cache Mode: binary
                           Hits: 22855  Misses: 894367  Evictions: 648191  Overflows: 0  Memory Usage: 131073kB
                           Buffers: shared hit=3710023
-                          ->  Index Scan using idx_principals_tconst on title_principals tp2  (cost=0.43..0.90 rows=9 width=20) (actual time=0.002..0.003 rows=9 loops=894367)
+                          ->  Index Scan using idx_principals_tconst on title_principals tp2  (cost=0.43..0.88 rows=9 width=20) (actual time=0.002..0.003 rows=9 loops=894367)
                                 Index Cond: ((tconst)::text = (tp1.tconst)::text)
                                 Filter: (((category)::text = ANY ('{actor,actress}'::text[])) AND ((nconst)::text <> (tp1.nconst)::text))
                                 Rows Removed by Filter: 11
                                 Buffers: shared hit=3710023
 Planning:
   Buffers: shared hit=32
-Planning Time: 0.280 ms
+Planning Time: 0.215 ms
 JIT:
   Functions: 30
   Options: Inlining true, Optimization true, Expressions true, Deforming true
-  Timing: Generation 0.651 ms, Inlining 56.840 ms, Optimization 31.839 ms, Emission 28.827 ms, Total 118.157 ms
-Execution Time: 8512.302 ms
+  Timing: Generation 0.455 ms, Inlining 69.511 ms, Optimization 32.467 ms, Emission 29.235 ms, Total 131.667 ms
+Execution Time: 8405.400 ms
