@@ -70,19 +70,43 @@ def batched_load_csv(csv_uri, body):
     """
 
 
+DELETE_BATCH = 10000
+
+
 def reset(session):
     """Svuota il database prima di ricaricare.
 
-    Serve davvero: i caricamenti usano MERGE, quindi senza svuotare i dati di una
+    Serve davvero: i caricamenti usano MERGE, quindi senza svuotare, i dati di una
     soglia di voti precedente resterebbero nel grafo e si sommerebbero ai nuovi.
-    La cancellazione e' batchata perche' un DETACH DELETE su milioni di nodi in
-    una transazione sola esaurisce l'heap. I constraint non vengono toccati:
-    sono schema, non dati.
+    I constraint non vengono toccati: sono schema, non dati.
+
+    Sulla forma della cancellazione. L'idioma
+
+        MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS
+
+    non basta: il MATCH a monte produce comunque l'intero flusso di nodi, e su un
+    grafo da centinaia di migliaia di nodi con milioni di archi esaurisce il
+    memory pool prima che il batching serva a qualcosa. Qui il limite e' dentro
+    ogni statement (WITH ... LIMIT), quindi la memoria di ogni transazione e'
+    limitata per costruzione, indipendentemente da quanto e' grande il grafo.
+    Gli archi vanno cancellati prima dei nodi: e' molto piu' leggero di un
+    DETACH DELETE, che per ogni nodo deve risalire a tutte le sue relazioni.
     """
     print("Svuotamento del database...")
-    session.run("MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS")
-    remaining = session.run("MATCH (n) RETURN count(n) AS n").single()["n"]
-    print(f"  nodi rimasti: {remaining}")
+
+    def delete_all(cypher, counter):
+        total = 0
+        while True:
+            summary = session.run(cypher, batch=DELETE_BATCH).consume()
+            deleted = getattr(summary.counters, counter)
+            if deleted == 0:
+                return total
+            total += deleted
+
+    rels = delete_all("MATCH ()-[r]->() WITH r LIMIT $batch DELETE r", "relationships_deleted")
+    print(f"  archi cancellati: {rels}")
+    nodes = delete_all("MATCH (n) WITH n LIMIT $batch DELETE n", "nodes_deleted")
+    print(f"  nodi cancellati:  {nodes}")
 
 
 def load_data(min_votes, do_reset):
