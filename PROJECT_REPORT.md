@@ -1,117 +1,398 @@
-# IMDb Database Comparison: PostgreSQL vs. Neo4j
+# PostgreSQL vs Neo4j on the IMDb Dataset
 
-> ⚠️ **I numeri di performance in questo documento non sono validi e sono in corso di
-> rifacimento sul branch `fix/benchmark-fairness`.** Sono stati misurati quando i due
-> database contenevano insiemi di archi diversi e tre query su quattro facevano domande
-> diverse nei due sistemi. Le misure originali sono conservate in
-> `analysis/baseline_pre_fix.md`; quelle nuove verranno generate da `analysis/results.csv`.
-> Vedi l'audit (B1–B5) per il dettaglio.
+**Data Management 2025/2026 — Sapienza Università di Roma**
+Lorenzo Ventrone (1802393) · Francesco Macrì (2055851)
 
-## 1. Project Overview
-This project is a comprehensive comparison between a Relational Database Management System (RDBMS), **PostgreSQL**, and a Graph Database, **Neo4j**, using the massive, real-world IMDb dataset. The primary objective is to evaluate the expressiveness, readability, and performance of SQL versus Cypher across a variety of analytical queries, ranging from simple aggregations to deep relationship traversals.
+---
 
-## 2. Technology Stack
-- **Databases**: PostgreSQL 15, Neo4j 5.12
-- **Environment**: Docker & Docker Compose (for consistent, reproducible local environments)
-- **Data Processing**: Python 3.12, Pandas (for ETL pipelines)
-- **Database Drivers**: `psycopg2-binary` (PostgreSQL), `neo4j` Python driver
+## 1. What this project measures
 
-## 3. Data Pipeline & ETL
-The ETL (Extract, Transform, Load) pipeline is handled entirely through custom Python scripts to ensure data consistency across both databases.
+The same four analytical queries, expressed in SQL over a normalised relational schema and in
+Cypher over a property graph, run against the same IMDb data loaded into PostgreSQL and Neo4j.
+We compare execution time, and we compare how naturally each language expresses each question.
 
-### 3.1. Extraction (`download_data.py`)
-The pipeline automatically downloads the latest `.tsv.gz` files directly from IMDb's public dataset repositories, extracting `title.basics`, `title.ratings`, `title.principals`, and `name.basics`. `title.crew` is deliberately not used: directors come from `title.principals` (`category = 'director'`), so that the same rows feed both databases.
+The interesting result is not which system is faster. It is that **the two systems have
+different complexity on the same question**, and that which one wins depends on the shape of
+the query and on the size of the data. To show that, every query is measured at three dataset
+sizes rather than one.
 
-### 3.2. Preprocessing (`preprocess_data.py`)
-Because the raw IMDb dataset contains tens of millions of rows (including TV episodes, shorts, and video games), the data was filtered to create a focused, high-quality analytical dataset:
-- **Filtering**: `titleType == 'movie'`.
-- **Quality Control**: `startYear > 1990` — note the strict inequality, so 1990 itself is excluded, matching the proposal's *released after 1990* — and `numVotes >= 1000`. The vote threshold is a parameter (`--min-votes`), which is what makes the scaling experiment possible.
-- **Data Cleaning**: Strict type enforcement (`Int64`) was applied to years and runtimes to prevent floating-point anomalies (e.g., `2001.0`) that cause strict relational databases to fail during bulk ingestion. 
-- **Symmetry**: The `characters` and `job` columns are dropped from **both** targets. No query uses them, and keeping them only on the relational side would have made PostgreSQL scan much wider tuples than the two-column edges Neo4j reads.
-- **Referential integrity**: Principals whose `nconst` is absent from `name.basics` are dropped upstream. Previously they were kept by PostgreSQL and silently discarded by Neo4j (the `MATCH` on the Person node simply found nothing), so the two databases held different data.
+## 2. The invariant the comparison rests on
 
-### 3.3. The dataset that was actually loaded
+A performance comparison between two databases is worth nothing unless they hold the same data
+and answer the same question. We enforce three rules, mechanically:
 
-Filters: `titleType == 'movie'`, `startYear > 1990`, `numVotes >= 1000`. Counts below are the
-output of `scripts/verify_counts.py`, which reads both databases and fails if they disagree —
-they are measured, not estimated.
+1. **Every row that enters one system enters the other.** The CSV files loaded into Neo4j are
+   derived from the same dataframe that feeds PostgreSQL. The three person–title relationship
+   types (`ACTED_IN`, `DIRECTED`, `WORKED_ON`) form a *partition* of the rows of
+   `Title_Principals` — asserted in `preprocess_data.py`, and verified after every load by
+   `scripts/verify_counts.py`, which exits non-zero if any count differs.
+2. **Every query filters by role explicitly in both languages.** In Neo4j the role is the
+   relationship type; in SQL it is `WHERE category IN (...)`, served by a dedicated index so
+   that the filter is an indexed access on both sides and not a post-scan filter on one.
+3. **No number appears in this report unless it comes from `analysis/results.csv`.** Every
+   table below is generated by `scripts/summarize_results.py`.
 
-| Entity | PostgreSQL | Neo4j |
+Section 9 explains why these rules exist: an earlier version of this project broke all three,
+and produced confident conclusions that were measuring the asymmetry rather than the databases.
+
+## 3. Experimental setup
+
+| | |
+|---|---|
+| Machine | Apple M4, 10 cores, 16 GB RAM, macOS 26.5.1 |
+| PostgreSQL | 15.19, official Docker image |
+| Neo4j | 5.12.0 Community, official Docker image |
+| Python | 3.14.3 — pandas 3.0.5, psycopg2-binary 2.9.12, neo4j driver 6.2.0 |
+
+Both engines are given comparable memory. This matters more than it sounds: on the stock image
+PostgreSQL runs with `shared_buffers` at 128 MB and `work_mem` at 4 MB, against 1 GB of heap
+and 1 GB of page cache for Neo4j. With `work_mem` at 4 MB the grouped `COUNT(DISTINCT)` of
+Query 2 spills to disk, and the benchmark would be measuring the configuration rather than the
+architecture.
+
+| Setting | PostgreSQL | Neo4j |
+|---|---|---|
+| Working memory | `work_mem = 64MB` | heap 512 MB – 1 GB |
+| Cache | `shared_buffers = 1GB`, `effective_cache_size = 3GB` | page cache 1 GB |
+| Other | `random_page_cost = 1.1` (SSD), 2 parallel workers | — |
+
+Both are declared in `docker-compose.yml`.
+
+## 4. Data pipeline
+
+Source: the IMDb Non-Commercial dataset (`title.basics`, `title.ratings`, `title.principals`,
+`name.basics`). `title.crew` is deliberately not used: directors come from `title.principals`
+(`category = 'director'`), so that a single filtered dataframe feeds both databases.
+
+Filters, applied in `preprocess_data.py`:
+
+- `titleType == 'movie'`;
+- `startYear > 1990` — a strict inequality, so 1990 itself is excluded, matching the proposal's
+  *released after 1990*;
+- `numVotes >= <threshold>`, where the threshold is a parameter (`--min-votes`). This is what
+  makes the scaling experiment possible.
+
+Two cleaning steps are worth naming:
+
+- **Nullable integers.** Years and runtimes are cast to pandas `Int64`, otherwise missing values
+  turn the column into a float and years are written as `2001.0`, which `COPY` rejects.
+- **Dangling references.** IMDb contains principals whose `nconst` is absent from
+  `name.basics` — 4 rows at the ≥10,000 threshold. They are dropped upstream, which is what
+  allows `Title_Principals.nconst REFERENCES Persons(nconst)` to hold. Dropping the constraint
+  instead would have been the wrong fix: Neo4j discards those same rows silently (the `MATCH`
+  on the `Person` node simply finds nothing and `LOAD CSV` carries on), so keeping them on the
+  relational side alone would have meant two databases with different contents.
+
+### Dataset sizes
+
+Counts are read from both databases by `verify_counts.py` and agree on every line.
+
+| | ≥10,000 votes | ≥1,000 votes | ≥100 votes |
+|---|---:|---:|---:|
+| Titles / `:Title` | 10,118 | 36,711 | 104,931 |
+| Persons / `:Person` | 79,281 | 268,541 | 664,143 |
+| Genres / `:Genre` | 22 | 24 | 26 |
+| `HAS_GENRE` | 26,376 | 84,666 | 208,477 |
+| `ACTED_IN` | 100,902 | 347,502 | 917,222 |
+| `DIRECTED` | 10,890 | 39,774 | 114,587 |
+| `WORKED_ON` | 109,735 | 360,925 | 917,829 |
+| **Person–title links** | **221,527** | **748,201** | **1,949,638** |
+
+The proposal estimated ~200,000 titles and ~3,000,000 person–title relationships. That was an
+overestimate of about one order of magnitude, made before applying the filters to the real
+files; the working set at the reference threshold is ~37k titles and ~748k links.
+
+## 5. Data models
+
+**Relational.** Five tables: `Titles` (PK `tconst`), `Persons` (PK `nconst`), `Genres`,
+`Title_Genres`, `Title_Principals` (PK `(tconst, nconst, ordering)`, FKs to both parents).
+Indexes on `nconst`, `tconst`, `startYear`, and on `category` plus a composite
+`(category, tconst, nconst)` so that role-filtered self-joins are index-only.
+
+**Graph.** Nodes `:Title`, `:Person`, `:Genre` with uniqueness constraints — created *before*
+loading, so the `MATCH` inside each `LOAD CSV` uses the index they generate. Relationships:
+
+```
+(:Person)-[:ACTED_IN {ordering}]->(:Title)     category in actor, actress
+(:Person)-[:DIRECTED]->(:Title)                category = director
+(:Person)-[:WORKED_ON {category}]->(:Title)    every other role
+(:Title)-[:HAS_GENRE]->(:Genre)
+```
+
+Ratings are properties of `:Title` rather than a separate node: they are a fact about the film,
+not an entity with its own relationships.
+
+Note the asymmetry the graph model *does* introduce, and which the relational schema cannot:
+in Neo4j the role is part of the topology, so filtering by role costs nothing. The relational
+schema needs an index on `category` to compete, which is why one was added. Payload is kept
+symmetric too — `job` and `characters` are dropped from both sides, since no query reads them
+and keeping them would have made PostgreSQL scan much wider tuples than the two-column edges
+Neo4j reads.
+
+## 6. Measurement method
+
+`scripts/benchmark.py`:
+
+- 2 warm-up executions, then **10 timed runs**; we report the **median** with min–max. A single
+  cold execution measures the page cache, not the query.
+- Connection and session are opened **outside** the timed section. Opening a Neo4j session costs
+  more than several of these queries take.
+- The order of the two systems **alternates** on every run, so neither systematically finds the
+  operating-system cache warmed by the other.
+- A 300 s `statement_timeout` on both sides. A timeout is recorded as a result, not an error.
+- After every load, PostgreSQL runs `ANALYZE` and Neo4j runs `db.awaitIndexes()`, so neither is
+  measured before it is ready (see section 9).
+- `EXPLAIN (ANALYZE, BUFFERS)` and `PROFILE` are captured for every case into
+  `analysis/plans/mv<threshold>/`.
+- **The two result sets are compared row by row.** If they differ, the benchmark reports the
+  first differing row and exits non-zero. Two timings for two different questions are not a
+  comparison, and this is what stops that from happening silently.
+
+All queries return a stable ordering, with the primary key as the final tie-break, so that the
+comparison is exact rather than tolerant.
+
+## 7. The four queries
+
+### Q1 · Degrees of separation
+
+*Is there a chain of collaborations of length ≤ d between two actors, and what is the shortest?*
+
+Cypher expresses this directly:
+
+```cypher
+MATCH path = shortestPath(
+    (a:Person {nconst: $src})-[:ACTED_IN*..8]-(b:Person {nconst: $dst})
+)
+RETURN length(path) / 2 AS degrees
+```
+
+SQL requires a recursive CTE, and here the language hits a real limit: **a recursive CTE cannot
+maintain a global visited set**, because the recursive term sees only the working table of the
+current iteration, not the accumulated result. `UNION` deduplicates on `(nconst, depth)`, so an
+actor reached at depth 1 is expanded again at depth 2, and again at depth 3. The re-expansion is
+not a mistake in the query; it is the price the declarative model pays for this shape of
+problem.
+
+```sql
+WITH RECURSIVE bfs(nconst, depth) AS (
+        SELECT %(src)s::VARCHAR, 0
+    UNION
+        SELECT tp2.nconst, b.depth + 1
+        FROM bfs b
+        JOIN Title_Principals tp1 ON tp1.nconst = b.nconst
+                                 AND tp1.category IN ('actor', 'actress')
+        JOIN Title_Principals tp2 ON tp2.tconst = tp1.tconst
+                                 AND tp2.category IN ('actor', 'actress')
+        WHERE b.depth < %(max_depth)s AND tp2.nconst <> b.nconst
+)
+SELECT MIN(depth) AS degrees FROM bfs WHERE nconst = %(dst)s;
+```
+
+Both sides receive the **same explicit depth limit**, so they answer the same question. Measuring
+one pair of actors would say nothing about scaling, so at each threshold `scripts/find_pairs.py`
+finds four targets at distance 1, 2, 3 and 4 from Kevin Bacon, using a deterministic sample so
+that a re-run measures the same pairs.
+
+*Methodological note.* The pairs necessarily differ between thresholds — a denser graph has
+different distances. What stays constant, and is therefore what we measure, is the question:
+*prove that a path of length ≤ d exists*. We compare the cost of that question as the graph
+grows.
+
+### Q2 · Most connected actors
+
+*Which actors have worked with the largest number of distinct co-actors?*
+
+A two-hop pattern in Cypher; a self-join grouped by actor in SQL. The role filter is explicit on
+both sides of the join in SQL and implicit in the relationship type in Cypher.
+
+### Q3 · Average rating by genre and decade
+
+*Average rating per genre, for films released in the 2010s, over genres with at least 50 films.*
+
+The one query where SQL reads better. `HAVING` does not exist in Cypher: the aggregate must be
+materialised with `WITH` and filtered afterwards. The minimum-film threshold matters — without
+it the ranking is dominated by rare genres with a handful of titles.
+
+### Q4 · Content-based recommendations
+
+*Films sharing the most cast and crew with a given title.*
+
+A localised two-hop neighbourhood from one known node. Both systems reach it through an index on
+the starting key. No role filter here — all roles count — so the Cypher traverses all three
+relationship types.
+
+## 8. Results
+
+Median of 10 runs, at three dataset sizes.
+
+### ≥10,000 votes — 10,118 titles
+
+| Query | PostgreSQL | Neo4j | Ratio |
+|---|---:|---:|---|
+| Q1 · distance 1 | 0.6 ms | 0.6 ms | tie |
+| Q1 · distance 2 | 14.7 ms | 0.9 ms | **Neo4j 16.1×** |
+| Q1 · distance 3 | 232.4 ms | 1.5 ms | **Neo4j 158.9×** |
+| Q1 · distance 4 | 609.7 ms | 1.6 ms | **Neo4j 390.3×** |
+| Q2 · most connected | 691.8 ms | 193.6 ms | **Neo4j 3.6×** |
+| Q3 · genre aggregation | 3.4 ms | 7.1 ms | **PostgreSQL 2.1×** |
+| Q4 · recommendations | 1.4 ms | 1.6 ms | **PostgreSQL 1.1×** |
+
+### ≥1,000 votes — 36,711 titles (reference working set)
+
+| Query | PostgreSQL | Neo4j | Ratio |
+|---|---:|---:|---|
+| Q1 · distance 1 | 0.7 ms | 0.6 ms | **Neo4j 1.2×** |
+| Q1 · distance 2 | 27.7 ms | 1.0 ms | **Neo4j 27.4×** |
+| Q1 · distance 3 | 554.4 ms | 1.8 ms | **Neo4j 301.3×** |
+| Q1 · distance 4 | 1.854 s | 1.8 ms | **Neo4j 1051.4×** |
+| Q2 · most connected | 2.621 s | 699.3 ms | **Neo4j 3.7×** |
+| Q3 · genre aggregation | 10.4 ms | 23.0 ms | **PostgreSQL 2.2×** |
+| Q4 · recommendations | 1.7 ms | 1.5 ms | **Neo4j 1.1×** |
+
+### ≥100 votes — 104,931 titles
+
+| Query | PostgreSQL | Neo4j | Ratio |
+|---|---:|---:|---|
+| Q1 · distance 1 | 0.7 ms | 0.6 ms | **Neo4j 1.1×** |
+| Q1 · distance 2 | 36.9 ms | 1.3 ms | **Neo4j 29.1×** |
+| Q1 · distance 3 | 1.002 s | 1.6 ms | **Neo4j 633.6×** |
+| Q1 · distance 4 | 4.472 s | 1.6 ms | **Neo4j 2834.0×** |
+| Q2 · most connected | 7.244 s | 2.042 s | **Neo4j 3.5×** |
+| Q3 · genre aggregation | 22.6 ms | 58.2 ms | **PostgreSQL 2.6×** |
+| Q4 · recommendations | 2.2 ms | 1.2 ms | **Neo4j 1.9×** |
+
+### Scaling of Q1
+
+| Distance | System | ≥10,000 | ≥1,000 | ≥100 |
+|---|---|---:|---:|---:|
+| 1 | PostgreSQL | 0.6 ms | 0.7 ms | 0.7 ms |
+| 1 | Neo4j | 0.6 ms | 0.6 ms | 0.6 ms |
+| 2 | PostgreSQL | 14.7 ms | 27.7 ms | 36.9 ms |
+| 2 | Neo4j | 0.9 ms | 1.0 ms | 1.3 ms |
+| 3 | PostgreSQL | 232.4 ms | 554.4 ms | 1.002 s |
+| 3 | Neo4j | 1.5 ms | 1.8 ms | 1.6 ms |
+| 4 | PostgreSQL | 609.7 ms | 1.854 s | **4.472 s** |
+| 4 | Neo4j | 1.6 ms | 1.8 ms | **1.6 ms** |
+
+420 measurements, no timeouts, and all seven cases returned identical results in the two systems
+at every threshold.
+
+## 9. Discussion
+
+**Q1 is the result the project exists for.** Read the last table across, not down. As the graph
+grows tenfold, PostgreSQL at distance 4 goes from 610 ms to 4.47 s while Neo4j stays at
+1.6–1.8 ms. The ratio moves from 390× to 2,834× — which is the point: *the ratio is not a
+property of the two systems, it is a function of the dataset size*. A single measurement on a
+single pair of actors would have reported one number from that curve and called it the answer.
+
+The mechanism is visible in the two execution plans. PostgreSQL performs a nested loop over the
+frontier at each level, re-expanding vertices already reached at shallower depths because the
+recursive CTE has no global visited set; the work grows with the size of the frontier, which
+grows with the graph. Neo4j's `shortestPath` runs a bidirectional search over index-free
+adjacency — fixed-size relationship records reached by offset from each node — so the work
+depends on the neighbourhood actually explored and barely on how large the rest of the graph is.
+
+**Q1 at distance 1 is a tie, and that matters.** At 0.6–0.7 ms for both systems at every scale,
+a one-hop lookup from an indexed key gives the graph no advantage whatsoever. A comparison that
+only ever showed the graph winning would be evidence of a badly designed benchmark, not of a
+superior database.
+
+**Q2 shows the same complexity with a constant factor.** PostgreSQL 0.69 → 2.62 → 7.24 s,
+Neo4j 0.19 → 0.70 → 2.04 s: both grow roughly linearly with the number of edges, and the ratio
+stays at 3.5–3.7× across a tenfold change in size. This is a different kind of result from Q1 —
+the same asymptotic behaviour, with Neo4j paying a smaller constant because it materialises
+co-actor pairs by pointer-chasing rather than by hash-joining a table against itself.
+
+**Q3 goes to PostgreSQL, consistently and increasingly** (2.1× → 2.2× → 2.6×). This is set-oriented
+work: scan a large number of rows, group them, average. PostgreSQL's advantage comes from
+efficient sequential scans, hash aggregation and a planner with accurate statistics — *not* from
+columnar execution, since PostgreSQL is a row store. Cypher is also the more awkward of the two
+here, needing `WITH` to materialise the aggregate before it can be filtered.
+
+**Q4 is effectively a tie** (1.2–2.2 ms everywhere). Both systems start from one known node
+reached through an index and expand a small neighbourhood. There is nothing for either
+architecture to exploit, and neither wins.
+
+**Readability.** Cypher is dramatically clearer for Q1 — one `shortestPath` call against a
+recursive CTE that cannot even express a proper visited set — and moderately clearer for Q2 and
+Q4, where the pattern reads like the question. SQL is clearer for Q3, where `GROUP BY … HAVING`
+says exactly what it does and Cypher needs an intermediate `WITH`. The advantage tracks the
+shape of the question, not the language.
+
+## 10. Two mistakes worth reporting
+
+Both were caught by the checks described in section 2 and section 6, which is the argument for
+having them.
+
+**Cypher groups by the returned expression, not by the node.** Query 2 first returned
+`p1.primaryName` directly:
+
+```cypher
+RETURN p1.primaryName AS name, count(DISTINCT p2) AS coactors   // wrong
+```
+
+Cypher's grouping key is implicit — it is the non-aggregated expression in the `RETURN` — so
+this groups by *name*. IMDb contains distinct people sharing a `primaryName`, and their
+co-actors were being merged into one total, while the SQL side correctly grouped by `nconst`.
+The row-by-row result comparison caught it: PostgreSQL reported `('Dermot Mulroney', 640)` where
+Neo4j reported `('Akshay Kumar', 661)`. The fix is an explicit `WITH p1, count(DISTINCT p2)`,
+which groups by node identity. The same latent defect was present in Q4, grouping by
+`primaryTitle`; it had not yet surfaced only because no homonymous films were in the top 10.
+
+**`COPY` does not update planner statistics.** The loader did not run `ANALYZE`, so statistics
+appeared only when autovacuum happened to pass — up to `autovacuum_naptime` (60 s) later. In the
+first three-threshold campaign, `title_principals` was auto-analysed a full minute after the
+other tables, and the entire Q1 phase of the ≥10,000 threshold ran inside that window. The
+symptoms were unmistakable once looked at:
+
+| | first campaign | after adding `ANALYZE` |
 |---|---:|---:|
-| Titles / `:Title` | 36,711 | 36,711 |
-| Persons / `:Person` | 268,541 | 268,541 |
-| Genres / `:Genre` | 24 | 24 |
-| Title–genre links / `HAS_GENRE` | 84,666 | 84,666 |
-| Acting roles / `ACTED_IN` | 337,894 | 337,894 |
-| Directing roles / `DIRECTED` | 39,774 | 39,774 |
-| Other crew roles / `WORKED_ON` | 360,502 | 360,502 |
-| **Person–title links, total** | **738,170** | **738,170** |
+| Q1 distance 2, ≥10,000 votes | 244.3 ms | **14.7 ms** |
+| execution plan for the same query | 18 ms | 18 ms |
 
-Two integrity checks also hold: zero principals with a `nconst` absent from `Persons`, and zero
-titles without a rating.
+The plans were captured at the end of each campaign, by which time autovacuum had run — which is
+exactly why the stopwatch and the plan disagreed by 13×. Two further symptoms pointed the same
+way: distance 2 and distance 3 took almost the same time, and the smaller dataset was slower
+than one four times larger. The ten runs of each case were stable to within 1%, so this was never
+noise; it was a consistently wrong plan chosen without statistics. `ANALYZE` now runs at the end
+of every load, and `db.awaitIndexes()` does the equivalent job on the Neo4j side. After the fix,
+PostgreSQL times are monotone in dataset size for all seven queries, which they had not been.
 
-*Discrepancy with the submitted proposal.* The proposal estimated ~200,000 titles and
-~3,000,000 person–title relationships, an overestimate of roughly one order of magnitude made
-before the filters were applied to the real files. The working set is ~37k titles and ~738k
-links — still large enough for the performance differences to be meaningful, and small enough
-to reload in minutes across three dataset sizes.
+## 11. Conclusions
 
-## 4. Relational Implementation (PostgreSQL)
+- **Neo4j wins where the depth of the traversal is the problem.** On degrees of separation its
+  advantage is not a constant factor but a different growth curve, reaching 2,834× on the
+  largest dataset — and the gap widens with every increase in size.
+- **PostgreSQL wins on set-oriented aggregation**, consistently and by a widening margin as data
+  grows.
+- **They tie on indexed point lookups and small neighbourhoods**, where neither architecture has
+  anything to exploit.
+- **The honest form of the answer is a curve, not a ratio.** Every single-number comparison we
+  produced before measuring at three sizes turned out to be a point on a curve we had not yet
+  seen.
+- The largest risk in a study like this is not slow code but an invalid comparison. Mechanical
+  checks — count verification after every load, row-by-row comparison of results — caught two
+  defects that would otherwise have produced confident, wrong conclusions.
 
-### 4.1. Schema Design
-The data was heavily normalized into 5 tables to eliminate redundancy:
-- `Titles` (Primary Key: `tconst`)
-- `Persons` (Primary Key: `nconst`)
-- `Genres` (Primary Key: `genre_id`)
-- `Title_Genres` (Associative table linking Titles and Genres)
-- `Title_Principals` (Associative table linking Titles and Persons, containing roles like actor/director)
+## 12. Reproducing
 
-*Note: the public dataset contains principals whose `nconst` is missing from `name.basics`. Rather than dropping the foreign key, these rows are filtered out during preprocessing, so `Title_Principals.nconst REFERENCES Persons(nconst)` holds and both databases contain the same set of person–title links.*
+```bash
+docker compose up -d --wait
+pip install -r requirements.txt
 
-### 4.2. Ingestion (`load_postgres.py`)
-Data was bulk-loaded using PostgreSQL's highly optimized `COPY FROM STDIN WITH CSV` command, resulting in ingestion times of just a few seconds.
+python scripts/download_data.py
+python scripts/preprocess_data.py --min-votes 1000
+python scripts/load_postgres.py   --min-votes 1000
+python scripts/load_neo4j.py      --min-votes 1000 --reset
+python scripts/verify_counts.py                        # gate: must exit 0
+python scripts/find_pairs.py --min-votes 1000
+python scripts/benchmark.py  --min-votes 1000 --runs 10 --warmup 2
+python scripts/summarize_results.py                    # regenerates the tables above
+```
 
-## 5. Graph Implementation (Neo4j)
+For the full three-size campaign: `bash scripts/run_scale.sh`.
 
-### 5.1. Graph Data Model
-The graph was designed to represent connections intuitively:
-- **Nodes**: `Title`, `Person`, `Genre`
-- **Edges**: `ACTED_IN {ordering}` (Person -> Title, `category` in *actor*/*actress*), `DIRECTED` (Person -> Title), `WORKED_ON {category}` (Person -> Title, every other role), `HAS_GENRE` (Title -> Genre)
-
-The three person–title relationship types **partition** the rows of `Title_Principals`: every role that reaches one database reaches the other. `scripts/verify_counts.py` asserts this after every load.
-
-### 5.2. Ingestion (`load_neo4j.py`)
-Cypher constraints (Unique constraints on `tconst`, `nconst`, and `name`) were established first to automatically generate indices.
-Data was ingested using `LOAD CSV` bundled inside `CALL { ... } IN TRANSACTIONS OF 50000 ROWS` blocks. This batching strategy prevents `OutOfMemory` exceptions when loading hundreds of thousands of edges. Furthermore, `MERGE` clauses were utilized over `CREATE` to guarantee idempotency during failed load retries.
-
-## 6. Benchmarking & Analytics
-`benchmark.py` runs each query on both databases after a warm-up, repeats it N times and reports the **median** with min–max, alternating which system goes first so neither systematically finds the page cache warmed by the other. Connections and sessions are opened outside the timed section. Every run is written to `analysis/results.csv`; `EXPLAIN (ANALYZE, BUFFERS)` and `PROFILE` output goes to `analysis/plans/`. The runner compares the two result sets row by row and fails if they differ — two timings for two different questions are not a comparison.
-
-### Query 1: Six Degrees of Separation (Shortest Path)
-- **Goal**: Find the shortest collaboration path between Kevin Bacon and Tom Hanks.
-- **SQL Approach**: Required a highly complex Recursive CTE (`WITH RECURSIVE`) to manually traverse joins up to a specific depth.
-- **Cypher Approach**: Utilized the built-in `shortestPath()` algorithm.
-- **Winner: Neo4j (14x faster)**. PostgreSQL took ~0.16s, Neo4j took ~0.01s.
-
-### Query 2: Most Connected Actors (Centrality)
-- **Goal**: Identify actors who have worked with the highest number of unique co-actors.
-- **SQL Approach**: A massive self-join on `Title_Principals` grouped by actor ID.
-- **Cypher Approach**: A direct pattern match `(p1)-[:ACTED_IN]->(t)<-[:ACTED_IN]-(p2)`.
-- **Winner: Neo4j**. Neo4j traverses this 2-hop pattern using index-free adjacency — fixed-size relationship records reachable by offset from each node — avoiding the index scanning and hash joining PostgreSQL needs for the equivalent self-join.
-
-### Query 3: Genre Aggregation
-- **Goal**: Calculate the average rating of movies per genre released in the 2010s.
-- **SQL Approach**: Standard `GROUP BY` and `AVG()` across 3 joined tables.
-- **Cypher Approach**: Pattern matching nodes, grouping using `WITH`, and returning averages.
-- **Winner: PostgreSQL**. PostgreSQL is a row-store, not a columnar engine: its advantage here comes from efficient sequential scans, hash aggregation, and a planner with accurate table statistics — not from columnar execution.
-
-### Query 4: Content-Based Recommendations
-- **Goal**: Recommend 5 movies based on shared cast and crew with *The Matrix*.
-- **SQL Approach**: Self-joining `Title_Principals` where `tconst` equals *The Matrix*.
-- **Cypher Approach**: Pattern match `(Matrix)<--(Person)-->(OtherMovie)`.
-- **Winner: PostgreSQL (10x faster)**. Because this is a localized, single-hop neighbor search starting from a single known node, PostgreSQL leveraged its B-Tree indices to execute this virtually instantaneously (0.006s).
-
-## 7. Conclusion
-The project successfully demonstrated the fundamental architectural trade-offs between Relational and Graph databases:
-- **Neo4j** holds a clear advantage on pathfinding and on traversals whose depth is not known in advance (Degrees of Separation). Note that the centrality query is a 2-hop pattern, not a deep traversal. Cypher is also significantly easier to read and write for these specific problems compared to Recursive SQL.
-- **PostgreSQL** remains stronger on set-oriented aggregations, strict schema enforcement, and localised single-hop lookups served by a B-tree index.
+Queries live in `postgres/queries/*.sql` and `neo4j/queries/*.cypher`. Raw measurements are in
+`analysis/results.csv`, execution plans in `analysis/plans/mv<threshold>/`. The measurements
+taken before the corrections of section 10, kept for comparison, are in
+`analysis/baseline_pre_fix.md`.
