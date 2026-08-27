@@ -52,7 +52,9 @@ def load_data():
             MERGE (t)-[:HAS_GENRE]->(g)
         ''')
         
-        # Periodic commit using apoc or auto-commit for edges
+        # Gli archi sono batchati in transazioni da 50k righe per non far
+        # esplodere l'heap. I tre file coprono, in partizione, tutte le righe
+        # di pg_principals.csv: nessun ruolo entra in un solo sistema.
         print("Loading ACTED_IN edges...")
         session.run('''
             LOAD CSV WITH HEADERS FROM 'file:///neo4j_edges_acted_in.csv' AS row
@@ -60,7 +62,8 @@ def load_data():
                 WITH row
                 MATCH (t:Title {tconst: row.tconst})
                 MATCH (p:Person {nconst: row.nconst})
-                MERGE (p)-[:ACTED_IN]->(t)
+                MERGE (p)-[r:ACTED_IN]->(t)
+                SET r.ordering = toInteger(row.ordering)
             } IN TRANSACTIONS OF 50000 ROWS
         ''')
         
@@ -74,7 +77,18 @@ def load_data():
                 MERGE (p)-[:DIRECTED]->(t)
             } IN TRANSACTIONS OF 50000 ROWS
         ''')
-        
+
+        print("Loading WORKED_ON edges...")
+        session.run('''
+            LOAD CSV WITH HEADERS FROM 'file:///neo4j_edges_worked_on.csv' AS row
+            CALL {
+                WITH row
+                MATCH (t:Title {tconst: row.tconst})
+                MATCH (p:Person {nconst: row.nconst})
+                MERGE (p)-[:WORKED_ON {category: row.category}]->(t)
+            } IN TRANSACTIONS OF 50000 ROWS
+        ''')
+
         print("Data loading complete!")
         
     driver.close()

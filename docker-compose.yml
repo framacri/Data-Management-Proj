@@ -8,6 +8,17 @@ services:
       POSTGRES_USER: imdb
       POSTGRES_PASSWORD: imdbpassword
       POSTGRES_DB: imdb
+    # Neo4j riceve heap 1G + pagecache 1G (sotto). Sui default dell'immagine
+    # Postgres girerebbe con shared_buffers=128MB e work_mem=4MB, e il
+    # COUNT(DISTINCT) per gruppo della Q2 finirebbe in spill su disco: il
+    # confronto misurerebbe la configurazione, non l'architettura.
+    command: >
+      postgres
+      -c shared_buffers=1GB
+      -c work_mem=64MB
+      -c effective_cache_size=3GB
+      -c max_parallel_workers_per_gather=2
+      -c random_page_cost=1.1
     ports:
       - "15432:5432"
     volumes:
