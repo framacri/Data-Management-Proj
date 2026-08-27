@@ -40,6 +40,15 @@ def load_data(min_votes):
             next(f)  # intestazione
             cursor.copy_expert(f"COPY {table} FROM STDIN WITH CSV", f)
 
+    # COPY non aggiorna le statistiche del planner: senza ANALYZE esplicito, i
+    # piani dipendono da quando l'autovacuum passa per conto suo (naptime 60s di
+    # default), e le prime query dopo il caricamento vengono pianificate al buio.
+    # E' misurabile: nella campagna del 27/08 la fase Q1 della soglia >=10000 e'
+    # girata dentro quella finestra e ha prodotto tempi fino a 13x peggiori del
+    # piano reale della stessa query.
+    print("ANALYZE...")
+    cursor.execute("ANALYZE")
+
     print("Caricamento completato.")
     cursor.close()
     conn.close()

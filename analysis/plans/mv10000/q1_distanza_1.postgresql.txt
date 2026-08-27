@@ -1,0 +1,33 @@
+Aggregate  (cost=328.14..328.15 rows=1 width=4) (actual time=0.198..0.199 rows=1 loops=1)
+  Buffers: shared hit=129
+  CTE bfs
+    ->  Recursive Union  (cost=0.00..310.10 rows=801 width=36) (actual time=0.001..0.178 rows=263 loops=1)
+          Buffers: shared hit=129
+          ->  Result  (cost=0.00..0.01 rows=1 width=36) (actual time=0.000..0.000 rows=1 loops=1)
+          ->  Nested Loop  (cost=0.71..29.41 rows=80 width=14) (actual time=0.006..0.075 rows=138 loops=2)
+                Join Filter: ((tp2.nconst)::text <> (b.nconst)::text)
+                Rows Removed by Join Filter: 16
+                Buffers: shared hit=129
+                ->  Nested Loop  (cost=0.42..22.15 rows=8 width=46) (actual time=0.004..0.014 rows=16 loops=2)
+                      Buffers: shared hit=33
+                      ->  WorkTable Scan on bfs b  (cost=0.00..0.22 rows=3 width=36) (actual time=0.002..0.002 rows=0 loops=2)
+                            Filter: (depth < 1)
+                            Rows Removed by Filter: 131
+                      ->  Index Scan using idx_principals_nconst on title_principals tp1  (cost=0.42..7.28 rows=3 width=20) (actual time=0.003..0.021 rows=31 loops=1)
+                            Index Cond: ((nconst)::text = (b.nconst)::text)
+                            Filter: ((category)::text = ANY ('{actor,actress}'::text[]))
+                            Rows Removed by Filter: 2
+                            Buffers: shared hit=33
+                ->  Index Scan using idx_principals_tconst on title_principals tp2  (cost=0.29..0.76 rows=10 width=20) (actual time=0.002..0.003 rows=10 loops=31)
+                      Index Cond: ((tconst)::text = (tp1.tconst)::text)
+                      Filter: ((category)::text = ANY ('{actor,actress}'::text[]))
+                      Rows Removed by Filter: 12
+                      Buffers: shared hit=96
+  ->  CTE Scan on bfs  (cost=0.00..18.02 rows=4 width=4) (actual time=0.028..0.198 rows=1 loops=1)
+        Filter: ((nconst)::text = 'nm0191906'::text)
+        Rows Removed by Filter: 262
+        Buffers: shared hit=129
+Planning:
+  Buffers: shared hit=24
+Planning Time: 0.128 ms
+Execution Time: 0.210 ms

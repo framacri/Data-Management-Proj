@@ -1,0 +1,33 @@
+Aggregate  (cost=610.99..611.00 rows=1 width=4) (actual time=5598.981..5598.983 rows=1 loops=1)
+  Buffers: shared hit=5018733
+  CTE bfs
+    ->  Recursive Union  (cost=0.00..577.65 rows=1481 width=36) (actual time=0.002..5543.579 rows=526502 loops=1)
+          Buffers: shared hit=5018733
+          ->  Result  (cost=0.00..0.01 rows=1 width=36) (actual time=0.000..0.001 rows=1 loops=1)
+          ->  Nested Loop  (cost=0.85..54.80 rows=148 width=14) (actual time=0.973..899.319 rows=1542227 loops=5)
+                Join Filter: ((tp2.nconst)::text <> (b.nconst)::text)
+                Rows Removed by Join Filter: 179211
+                Buffers: shared hit=5018733
+                ->  Nested Loop  (cost=0.43..39.05 rows=16 width=46) (actual time=0.970..209.928 rows=169411 loops=5)
+                      Buffers: shared hit=1498890
+                      ->  WorkTable Scan on bfs b  (cost=0.00..0.22 rows=3 width=36) (actual time=0.966..3.184 rows=40936 loops=5)
+                            Filter: (depth < 4)
+                            Rows Removed by Filter: 64364
+                      ->  Index Scan using idx_principals_nconst on title_principals tp1  (cost=0.43..12.89 rows=5 width=20) (actual time=0.003..0.005 rows=4 loops=204681)
+                            Index Cond: ((nconst)::text = (b.nconst)::text)
+                            Filter: ((category)::text = ANY ('{actor,actress}'::text[]))
+                            Rows Removed by Filter: 1
+                            Buffers: shared hit=1498890
+                ->  Index Scan using idx_principals_tconst on title_principals tp2  (cost=0.43..0.85 rows=9 width=20) (actual time=0.002..0.003 rows=10 loops=847057)
+                      Index Cond: ((tconst)::text = (tp1.tconst)::text)
+                      Filter: ((category)::text = ANY ('{actor,actress}'::text[]))
+                      Rows Removed by Filter: 10
+                      Buffers: shared hit=3519843
+  ->  CTE Scan on bfs  (cost=0.00..33.32 rows=7 width=4) (actual time=4101.385..5598.972 rows=1 loops=1)
+        Filter: ((nconst)::text = 'nm0003888'::text)
+        Rows Removed by Filter: 526501
+        Buffers: shared hit=5018733
+Planning:
+  Buffers: shared hit=32
+Planning Time: 0.193 ms
+Execution Time: 5602.086 ms

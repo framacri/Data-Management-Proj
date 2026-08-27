@@ -1,0 +1,51 @@
+Limit  (cost=102554.37..102554.39 rows=10 width=32) (actual time=864.330..864.399 rows=10 loops=1)
+  Buffers: shared hit=314155
+  ->  Sort  (cost=102554.37..105091.40 rows=1014812 width=32) (actual time=860.622..860.690 rows=10 loops=1)
+        Sort Key: (count(DISTINCT tp2.nconst)) DESC, tp1.nconst
+        Sort Method: top-N heapsort  Memory: 26kB
+        Buffers: shared hit=314155
+        ->  GroupAggregate  (cost=8836.50..80624.65 rows=1014812 width=32) (actual time=68.537..857.321 rows=43495 loops=1)
+              Group Key: tp1.nconst, p.primaryname
+              Buffers: shared hit=314155
+              ->  Nested Loop  (cost=8836.50..62865.44 rows=1014812 width=34) (actual time=68.479..540.618 rows=936262 loops=1)
+                    Buffers: shared hit=314155
+                    ->  Gather Merge  (cost=8836.19..20596.05 rows=100972 width=34) (actual time=68.447..88.925 rows=100902 loops=1)
+                          Workers Planned: 2
+                          Workers Launched: 2
+                          Buffers: shared hit=2862
+                          ->  Sort  (cost=7836.17..7941.35 rows=42072 width=34) (actual time=45.174..46.619 rows=33634 loops=3)
+                                Sort Key: tp1.nconst, p.primaryname
+                                Sort Method: quicksort  Memory: 6007kB
+                                Buffers: shared hit=2862
+                                Worker 0:  Sort Method: quicksort  Memory: 2397kB
+                                Worker 1:  Sort Method: quicksort  Memory: 2387kB
+                                ->  Hash Join  (cost=2350.24..4604.92 rows=42072 width=34) (actual time=11.070..18.892 rows=33634 loops=3)
+                                      Hash Cond: ((tp1.nconst)::text = (p.nconst)::text)
+                                      Buffers: shared hit=2846
+                                      ->  Parallel Index Only Scan using idx_principals_cat_tconst_nconst on title_principals tp1  (cost=0.42..2144.65 rows=42072 width=20) (actual time=0.020..2.456 rows=33634 loops=3)
+                                            Index Cond: (category = ANY ('{actor,actress}'::text[]))
+                                            Heap Fetches: 0
+                                            Buffers: shared hit=1084
+                                      ->  Hash  (cost=1358.81..1358.81 rows=79281 width=24) (actual time=10.928..10.929 rows=79281 loops=3)
+                                            Buckets: 131072  Batches: 1  Memory Usage: 5406kB
+                                            Buffers: shared hit=1698
+                                            ->  Seq Scan on persons p  (cost=0.00..1358.81 rows=79281 width=24) (actual time=1.424..4.710 rows=79281 loops=3)
+                                                  Buffers: shared hit=1698
+                    ->  Memoize  (cost=0.30..0.82 rows=10 width=20) (actual time=0.002..0.004 rows=9 loops=100902)
+                          Cache Key: tp1.nconst, tp1.tconst
+                          Cache Mode: binary
+                          Hits: 2750  Misses: 98152  Evictions: 0  Overflows: 0  Memory Usage: 54119kB
+                          Buffers: shared hit=311293
+                          ->  Index Scan using idx_principals_tconst on title_principals tp2  (cost=0.29..0.81 rows=10 width=20) (actual time=0.001..0.003 rows=9 loops=98152)
+                                Index Cond: ((tconst)::text = (tp1.tconst)::text)
+                                Filter: (((category)::text = ANY ('{actor,actress}'::text[])) AND ((nconst)::text <> (tp1.nconst)::text))
+                                Rows Removed by Filter: 13
+                                Buffers: shared hit=311293
+Planning:
+  Buffers: shared hit=28
+Planning Time: 0.259 ms
+JIT:
+  Functions: 44
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 0.547 ms, Inlining 0.000 ms, Optimization 0.370 ms, Emission 7.631 ms, Total 8.549 ms
+Execution Time: 865.201 ms

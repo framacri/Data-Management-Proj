@@ -1,12 +1,13 @@
 {
+  "min_votes": 10000,
   "source": {
     "nconst": "nm0000102",
     "name": "Kevin Bacon"
   },
   "targets": [
     {
-      "nconst": "nm1534888",
-      "name": "Luis Da Silva Jr.",
+      "nconst": "nm0191906",
+      "name": "Jim Cummings",
       "distance": 1
     },
     {
@@ -15,13 +16,13 @@
       "distance": 2
     },
     {
-      "nconst": "nm0001163",
-      "name": "Roy Dupuis",
+      "nconst": "nm0000397",
+      "name": "Corey Feldman",
       "distance": 3
     },
     {
-      "nconst": "nm0014735",
-      "name": "Kacey Ainsworth",
+      "nconst": "nm0218843",
+      "name": "Mathieu Demy",
       "distance": 4
     }
   ]

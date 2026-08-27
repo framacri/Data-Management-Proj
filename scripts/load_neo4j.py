@@ -103,6 +103,11 @@ def load_data(min_votes, do_reset):
             print(f"Caricamento {label} da {subdir}/{filename}...")
             session.run(batched_load_csv(f"file:///{subdir}/{filename}", body))
 
+        # Simmetrico all'ANALYZE lato Postgres: garantisce che gli indici siano
+        # online e popolati prima che qualcuno misuri una query.
+        print("Attesa che gli indici siano online...")
+        session.run("CALL db.awaitIndexes()")
+
         print("Caricamento completato.")
 
     driver.close()
