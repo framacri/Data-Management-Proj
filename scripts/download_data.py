@@ -8,9 +8,13 @@ FILES = [
     "title.basics.tsv.gz",
     "name.basics.tsv.gz",
     "title.principals.tsv.gz",
-    "title.crew.tsv.gz",
     "title.ratings.tsv.gz"
 ]
+# title.crew non e' scaricato: i registi provengono da title.principals
+# (category = 'director'). Aggiungere quelli presenti solo in title.crew
+# richiederebbe di inserirli in ENTRAMBI i sistemi per non rompere la
+# simmetria, e la chiave primaria (tconst, nconst, ordering) di
+# Title_Principals non ammette righe prive di ordering.
 DATA_DIR = "data"
 
 def download_and_extract():

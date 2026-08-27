@@ -40,8 +40,6 @@ CREATE TABLE Title_Principals (
     nconst VARCHAR(15) REFERENCES Persons(nconst),
     ordering INTEGER,
     category VARCHAR(255),
-    job TEXT,
-    characters TEXT,
     PRIMARY KEY (tconst, nconst, ordering)
 );
 

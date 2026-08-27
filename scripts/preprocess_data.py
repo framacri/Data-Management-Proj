@@ -102,7 +102,10 @@ def process_data():
 
     print("Saving postgres entities...")
     final_names[['nconst', 'primaryName', 'birthYear', 'deathYear']].to_csv(os.path.join(DATA_DIR, "pg_persons.csv"), index=False)
-    final_principals[['tconst', 'nconst', 'ordering', 'category', 'job', 'characters']].to_csv(os.path.join(DATA_DIR, "pg_principals.csv"), index=False)
+    # 'job' e 'characters' sono esclusi: nessuna query li usa, sono TEXT larghi
+    # che Postgres dovrebbe scansionare mentre gli archi Neo4j pesano due colonne.
+    # Tenerli darebbe a Neo4j un vantaggio di payload per riga.
+    final_principals[['tconst', 'nconst', 'ordering', 'category']].to_csv(os.path.join(DATA_DIR, "pg_principals.csv"), index=False)
 
     print("Saving neo4j entities (Nodes)...")
     final_names[['nconst', 'primaryName', 'birthYear']].to_csv(os.path.join(DATA_DIR, "neo4j_nodes_persons.csv"), index=False)

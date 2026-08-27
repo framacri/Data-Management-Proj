@@ -1,3 +1,8 @@
+> ⚠️ **Numeri non validi, in corso di rifacimento.** Misurati quando i due database
+> contenevano insiemi di archi diversi e tre query su quattro non erano equivalenti.
+> Copia congelata in `analysis/baseline_pre_fix.md`; i nuovi risultati verranno generati
+> da `analysis/results.csv`.
+
 # IMDb DBMS Benchmark Results
 
 These are the results of comparing PostgreSQL (Relational) and Neo4j (Graph) on the IMDb dataset. The tests were run locally on a Dockerized environment.
