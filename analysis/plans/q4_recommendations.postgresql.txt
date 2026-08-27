@@ -1,0 +1,33 @@
+Limit  (cost=303.25..303.27 rows=10 width=33) (actual time=1.779..1.781 rows=10 loops=1)
+  Buffers: shared hit=2039
+  ->  Sort  (cost=303.25..303.83 rows=233 width=33) (actual time=1.778..1.779 rows=10 loops=1)
+        Sort Key: (count(DISTINCT tp2.nconst)) DESC, t2.primarytitle
+        Sort Method: top-N heapsort  Memory: 26kB
+        Buffers: shared hit=2039
+        ->  GroupAggregate  (cost=294.14..298.21 rows=233 width=33) (actual time=1.583..1.741 rows=370 loops=1)
+              Group Key: t2.tconst
+              Buffers: shared hit=2039
+              ->  Sort  (cost=294.14..294.72 rows=233 width=35) (actual time=1.579..1.591 rows=502 loops=1)
+                    Sort Key: t2.tconst
+                    Sort Method: quicksort  Memory: 63kB
+                    Buffers: shared hit=2039
+                    ->  Nested Loop  (cost=1.14..284.98 rows=233 width=35) (actual time=0.016..1.356 rows=502 loops=1)
+                          Buffers: shared hit=2039
+                          ->  Nested Loop  (cost=0.85..213.11 rows=233 width=20) (actual time=0.013..0.413 rows=502 loops=1)
+                                Buffers: shared hit=533
+                                ->  Index Only Scan using title_principals_pkey on title_principals tp1  (cost=0.42..1.89 rows=21 width=20) (actual time=0.006..0.008 rows=21 loops=1)
+                                      Index Cond: (tconst = 'tt0133093'::text)
+                                      Heap Fetches: 0
+                                      Buffers: shared hit=4
+                                ->  Index Scan using idx_principals_nconst on title_principals tp2  (cost=0.42..9.97 rows=9 width=20) (actual time=0.004..0.018 rows=24 loops=21)
+                                      Index Cond: ((nconst)::text = (tp1.nconst)::text)
+                                      Filter: ((tconst)::text <> (tp1.tconst)::text)
+                                      Rows Removed by Filter: 1
+                                      Buffers: shared hit=529
+                          ->  Index Scan using titles_pkey on titles t2  (cost=0.29..0.31 rows=1 width=25) (actual time=0.002..0.002 rows=1 loops=502)
+                                Index Cond: ((tconst)::text = (tp2.tconst)::text)
+                                Buffers: shared hit=1506
+Planning:
+  Buffers: shared hit=48
+Planning Time: 0.282 ms
+Execution Time: 1.797 ms

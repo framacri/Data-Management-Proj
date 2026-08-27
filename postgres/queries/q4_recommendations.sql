@@ -5,8 +5,11 @@
 -- deve contare una volta sola, esattamente come count(DISTINCT p) in Cypher.
 -- Nessun filtro su category: qui contano tutti i ruoli, e la controparte Cypher
 -- attraversa infatti tutti e tre i tipi di relazione.
+--
+-- Raggruppamento e ordinamento su tconst: i titoli omonimi sono film diversi.
 
-SELECT t2.primaryTitle AS title,
+SELECT t2.tconst,
+       t2.primaryTitle AS title,
        COUNT(DISTINCT tp2.nconst) AS shared_people
 FROM Title_Principals tp1
 JOIN Title_Principals tp2
@@ -16,5 +19,5 @@ JOIN Titles t2
   ON t2.tconst = tp2.tconst
 WHERE tp1.tconst = %(tconst)s
 GROUP BY t2.tconst, t2.primaryTitle
-ORDER BY shared_people DESC, title
+ORDER BY shared_people DESC, t2.tconst
 LIMIT 10;
