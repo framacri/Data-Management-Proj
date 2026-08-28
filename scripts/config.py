@@ -1,10 +1,3 @@
-"""Configurazione condivisa da tutti gli script della pipeline.
-
-Host, porte e credenziali stavano duplicati in quattro file: bastava cambiare
-una porta nel docker-compose per doverla inseguire ovunque. Qui stanno in un
-posto solo, sovrascrivibili da variabile d'ambiente per chi gira i database
-altrove che in locale.
-"""
 import os
 
 POSTGRES = {
@@ -23,19 +16,14 @@ NEO4J_AUTH = (
 
 DATA_DIR = "data"
 ANALYSIS_DIR = "analysis"
-
-# Soglia di voti predefinita del working set.
 DEFAULT_MIN_VOTES = 1000
 
 
 def data_subdir(min_votes):
-    """Sottocartella di data/ per una soglia di voti.
-
-    I CSV devono restare sotto data/, che il docker-compose monta come cartella
-    di import di Neo4j: e' da li' che LOAD CSV legge 'file:///...'.
-    """
     return f"mv{min_votes}"
 
 
 def data_path(min_votes, filename=""):
+    # Generated CSVs must stay under DATA_DIR: docker-compose mounts it as
+    # Neo4j's import directory, which is where LOAD CSV reads 'file:///...'.
     return os.path.join(DATA_DIR, data_subdir(min_votes), filename)

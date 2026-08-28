@@ -1,46 +1,43 @@
 # IMDb DBMS Comparison — PostgreSQL vs Neo4j
 
-Confronto fra un DBMS relazionale (PostgreSQL) e un database a grafo (Neo4j) sulle stesse
-quattro query analitiche, sul dataset IMDb Non-Commercial.
+The same four analytical queries, expressed in SQL over a normalised relational schema and in
+Cypher over a property graph, run against identical IMDb data in PostgreSQL and Neo4j, at three
+dataset sizes.
 
-Progetto di Data Management 2025/2026 — Sapienza Università di Roma.
+Data Management 2025/2026, Sapienza Università di Roma.
 Lorenzo Ventrone (1802393) · Francesco Macrì (2055851)
 
-## Il principio che regge il confronto
+Full method, results and analysis: **[PROJECT_REPORT.md](PROJECT_REPORT.md)**.
 
-1. **Ogni riga che entra in un sistema entra anche nell'altro.** I CSV per Neo4j sono derivati
-   dallo stesso dataframe che alimenta Postgres; i tre tipi di relazione persona–titolo
-   (`ACTED_IN`, `DIRECTED`, `WORKED_ON`) ne sono una partizione. `verify_counts.py` lo verifica
-   dopo ogni caricamento.
-2. **Ogni query filtra per ruolo esplicitamente in entrambi i linguaggi.** In Neo4j il ruolo è
-   il tipo di relazione; in SQL è un `WHERE category IN (...)` servito da un indice dedicato.
-3. **Nessun numero finisce nel report se non viene da `analysis/results.csv`.**
+## What keeps the comparison valid
 
-## Prerequisiti
+1. **Every row that enters one system enters the other.** The Neo4j CSVs are derived from the
+   same dataframe that feeds PostgreSQL, and the three person–title relationship types
+   (`ACTED_IN`, `DIRECTED`, `WORKED_ON`) partition the rows of `Title_Principals`.
+   `verify_counts.py` checks this after every load and exits non-zero if it does not hold.
+2. **Every query filters by role explicitly in both languages.** In Neo4j the role is the
+   relationship type; in SQL it is `WHERE category IN (...)`, served by a dedicated index.
+3. **No number reaches the report unless it comes from `analysis/results.csv`.**
 
-- Docker & Docker Compose
+## Requirements
+
+- Docker and Docker Compose
 - Python 3.9+
-- ~15 GB liberi su disco (i TSV IMDb scompattati pesano circa 10 GB)
+- ~15 GB of free disk space for the extracted IMDb TSV files
 
-## Esecuzione
+## Running
 
-### 1 · Avviare i database
+### 1. Start the databases
 
 ```bash
 docker compose up -d --wait
 ```
 
-`--wait` sfrutta gli healthcheck definiti nel compose e ritorna solo quando entrambi i database
-accettano connessioni: senza, i loader lanciati subito dopo falliscono.
+Neo4j Browser at http://localhost:7474 (`neo4j` / `imdbpassword`), PostgreSQL on
+`localhost:15432` (`imdb` / `imdbpassword`, database `imdb`). Both are given comparable memory
+in `docker-compose.yml`.
 
-- Neo4j Browser: http://localhost:7474 — `neo4j` / `imdbpassword`
-- PostgreSQL: `localhost:15432` — utente `imdb`, password `imdbpassword`, database `imdb`
-
-Entrambi i motori sono configurati con memoria comparabile nel compose: senza questo, Postgres
-girerebbe con `work_mem` a 4MB contro 1GB di page cache per Neo4j, e il benchmark misurerebbe
-la configurazione invece dell'architettura.
-
-### 2 · Ambiente Python
+### 2. Python environment
 
 ```bash
 python3 -m venv .venv
@@ -48,81 +45,82 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3 · Scaricare e preparare i dati
+### 3. Download and prepare the data
 
 ```bash
-python scripts/download_data.py      # TSV da datasets.imdbws.com in data/
-python scripts/preprocess_data.py    # filtra e genera i CSV per entrambi i DB
+python scripts/download_data.py
+python scripts/preprocess_data.py --min-votes 1000
 ```
 
-Filtro applicato: `titleType == 'movie'`, `startYear > 1990`, `numVotes >= 1000`.
+Filters: `titleType == 'movie'`, `startYear > 1990` (1990 itself excluded), and
+`numVotes >= <threshold>`. Generated CSVs go to `data/mv<threshold>/`, so several dataset sizes
+coexist. They must stay under `data/`, which is mounted as Neo4j's import directory.
 
-### 4 · Caricare
+### 4. Load
 
 ```bash
 python scripts/load_postgres.py --min-votes 1000
 python scripts/load_neo4j.py    --min-votes 1000 --reset
 ```
 
-`--reset` svuota Neo4j prima di caricare. **Serve davvero**: il caricamento usa `MERGE`, quindi
-senza svuotare i dati di un caricamento precedente resterebbero nel grafo e si sommerebbero ai
-nuovi. Postgres non ne ha bisogno perché `schema.sql` ricrea le tabelle.
+`--reset` clears the graph first. It is required when reloading: the load uses `MERGE`, so
+without it the previous dataset's relationships remain and accumulate. PostgreSQL does not need
+it because `schema.sql` recreates the tables.
 
-### 5 · Verificare che i due database siano allineati
+### 5. Check that both databases agree
 
 ```bash
 python scripts/verify_counts.py
 ```
 
-**È un cancello, non un controllo di cortesia.** Confronta righe Postgres e archi Neo4j per
-tutte e sette le categorie ed esce con codice diverso da 0 se divergono. Finché non passa, ogni
-misura di performance confronta carichi di lavoro diversi.
+A gate, not a courtesy check. It compares PostgreSQL rows against Neo4j relationships across all
+seven categories and exits non-zero if any differ. Until it passes, any timing compares
+different workloads.
 
-### 6 · Misurare
+### 6. Measure
 
 ```bash
-python scripts/find_pairs.py --min-votes 1000                      # coppie a distanza 1-4
+python scripts/find_pairs.py --min-votes 1000
 python scripts/benchmark.py  --min-votes 1000 --runs 10 --warmup 2
-python scripts/summarize_results.py                                # tabelle per il report
+python scripts/summarize_results.py
 ```
 
-Il benchmark scrive `analysis/results.csv` (una riga per run) e i piani di esecuzione in
-`analysis/plans/mv<soglia>/`. Esce con codice diverso da 0 se le due implementazioni di una
-query restituiscono risultati diversi.
+The benchmark writes one row per run to `analysis/results.csv` and execution plans to
+`analysis/plans/mv<threshold>/`. It exits non-zero if the two implementations of a query return
+different results.
 
-Opzioni utili: `--timeout` (default 300 s), `--append` (accoda invece di sovrascrivere),
-`--no-plans`, `--show`.
+Useful flags: `--timeout` (default 300 s), `--append`, `--no-plans`, `--show`.
 
-### 7 · Asse della scala (opzionale)
+### 7. All three dataset sizes
 
 ```bash
 bash scripts/run_scale.sh
 ```
 
-Rifà l'intera pipeline a tre soglie (≥10.000, ≥1.000, ≥100 voti) accumulando tutto in un unico
-`results.csv`, così i tempi si possono riportare come curve invece che come numeri singoli.
-Richiede diverse ore. Si ferma da solo se `verify_counts.py` fallisce a una qualsiasi soglia.
+Repeats the pipeline at ≥10,000, ≥1,000 and ≥100 votes, accumulating into a single
+`results.csv` so timings can be reported as curves rather than single numbers. Takes several
+hours, and stops if `verify_counts.py` fails at any threshold.
 
-## Le query
+## The queries
 
-| # | Domanda | File |
+| | Question | Files |
 |---|---|---|
-| Q1 | Gradi di separazione fra due attori | `postgres/queries/q1_shortest_path.sql` · `neo4j/queries/q1_shortest_path.cypher` |
-| Q2 | Attori più connessi (centralità) | `q2_most_connected.sql` · `.cypher` |
-| Q3 | Rating medio per genere, decennio 2010-2019 | `q3_genre_by_decade.sql` · `.cypher` |
-| Q4 | Film consigliati per cast e troupe condivisi | `q4_recommendations.sql` · `.cypher` |
+| Q1 | Degrees of separation between two actors | `q1_shortest_path.sql` · `.cypher` |
+| Q2 | Most connected actors | `q2_most_connected.sql` · `.cypher` |
+| Q3 | Average rating by genre, 2010s | `q3_genre_by_decade.sql` · `.cypher` |
+| Q4 | Films recommended by shared cast and crew | `q4_recommendations.sql` · `.cypher` |
 
-La Q1 viene misurata su quattro coppie a distanza crescente: su una coppia sola il tempo non
-dice nulla sullo scaling, che è il punto del confronto. Entrambi i sistemi ricevono lo stesso
-limite di profondità esplicito.
+Under `postgres/queries/` and `neo4j/queries/`. Q1 is measured on four actor pairs at distances
+1 to 4: on a single pair the timing says nothing about how the cost scales, which is the point
+of the comparison.
 
-## Struttura
+## Layout
 
 ```
-scripts/          config, download, preprocess, load_*, verify_counts,
-                  find_pairs, benchmark, summarize_results, run_scale.sh
-postgres/queries/ le quattro query in SQL
-neo4j/queries/    le stesse quattro query in Cypher
-data/mv<soglia>/  i CSV generati, una cartella per dimensione del dataset
-analysis/         results.csv, plans/, pairs_mv*.json, baseline_pre_fix.md
+scripts/           config, download, preprocess, load_*, verify_counts,
+                   find_pairs, benchmark, summarize_results, run_scale.sh
+postgres/queries/  the four queries in SQL
+neo4j/queries/     the same four queries in Cypher
+data/mv<n>/        generated CSVs, one directory per dataset size
+analysis/          results.csv, plans/, pairs_mv*.json, baseline_pre_fix.md
 ```

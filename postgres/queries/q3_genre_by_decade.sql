@@ -1,8 +1,6 @@
--- Q3 · Rating medio per genere, film del decennio 2010-2019
---
--- La soglia HAVING COUNT(*) >= 50 evita che la classifica sia dominata da
--- generi rarissimi con una manciata di titoli, dove la media non e'
--- significativa. La stessa soglia e' applicata lato Cypher dopo il WITH.
+-- Average rating per genre for films released in the 2010s.
+-- The minimum-film threshold keeps rare genres with a handful of titles, where
+-- the average is not meaningful, out of the ranking.
 
 SELECT g.name AS genre,
        ROUND(AVG(t.averageRating), 3) AS avg_rating,

@@ -1,14 +1,8 @@
--- Q2 · Attori piu' connessi (centralita' nella rete di collaborazioni)
+-- Actors with the largest number of distinct co-actors.
 --
--- Il filtro sul ruolo e' esplicito da entrambi i lati del self-join: in Neo4j
--- lo stesso filtro e' implicito nel tipo di relazione ACTED_IN. Senza il filtro
--- la query conterebbe anche produttori e sceneggiatori e non risponderebbe piu'
--- alla stessa domanda del Cypher.
---
--- Il raggruppamento e' su nconst, non sul nome: IMDb contiene persone diverse
--- con lo stesso primaryName. nconst e' restituito e usato come criterio di
--- ordinamento secondario perche' il risultato sia deterministico e confrontabile
--- riga per riga con quello del grafo.
+-- Grouping is by nconst, not by name: IMDb contains distinct people sharing a
+-- primaryName. nconst is returned and used as the secondary sort key so the
+-- result is deterministic and comparable row by row with the Cypher version.
 
 SELECT tp1.nconst,
        p.primaryName AS name,

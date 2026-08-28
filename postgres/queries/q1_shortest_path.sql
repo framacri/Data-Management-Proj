@@ -1,15 +1,9 @@
--- Q1 · Gradi di separazione tra due attori (Six Degrees of Separation)
+-- Degrees of separation: is there a chain of collaborations of length
+-- <= max_depth between two actors, and what is the shortest?
 --
--- Domanda: esiste una catena di collaborazioni di lunghezza <= :max_depth che
--- collega i due attori? In caso affermativo, qual e' la piu' corta?
---
--- Nota sul limite di SQL: una CTE ricorsiva non puo' mantenere un visited-set
--- globale, perche' la parte ricorsiva vede solo la working table dell'iterazione
--- corrente, non il risultato accumulato. UNION (non ALL) deduplica su
--- (nconst, depth), quindi un attore raggiunto al livello 1 viene comunque
--- riespanso al livello 2, al 3 e cosi' via. Il costo cresce con la profondita'
--- richiesta: e' esattamente il prezzo che il modello dichiarativo paga qui, ed
--- e' il motivo per cui questa query e' il caso di studio del confronto.
+-- A recursive CTE cannot maintain a global visited set: the recursive term sees
+-- only the current iteration's working table, so an actor reached at depth 1 is
+-- expanded again at depth 2 and beyond.
 
 WITH RECURSIVE bfs(nconst, depth) AS (
         SELECT %(src)s::VARCHAR, 0

@@ -6,10 +6,9 @@ services:
       POSTGRES_USER: imdb
       POSTGRES_PASSWORD: imdbpassword
       POSTGRES_DB: imdb
-    # Neo4j riceve heap 1G + pagecache 1G (sotto). Sui default dell'immagine
-    # Postgres girerebbe con shared_buffers=128MB e work_mem=4MB, e il
-    # COUNT(DISTINCT) per gruppo della Q2 finirebbe in spill su disco: il
-    # confronto misurerebbe la configurazione, non l'architettura.
+    # Kept comparable to the Neo4j memory settings below. On the stock image
+    # work_mem is 4MB, and the grouped COUNT(DISTINCT) in Q2 spills to disk:
+    # the benchmark would measure the configuration, not the architecture.
     command: >
       postgres
       -c shared_buffers=1GB
@@ -21,9 +20,9 @@ services:
       - "15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./data:/data # Map local data folder for easy loading
-    # Senza healthcheck i loader falliscono se lanciati subito dopo l'avvio.
-    # Con questo, `docker compose up -d --wait` ritorna solo a servizi pronti.
+      - ./data:/data
+    # Lets `docker compose up -d --wait` return only once both are accepting
+    # connections; without it the loaders fail when started immediately after.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U imdb -d imdb"]
       interval: 5s
@@ -36,16 +35,15 @@ services:
     container_name: neo4j_imdb
     environment:
       NEO4J_AUTH: neo4j/imdbpassword
-      # Configure memory for bulk loading and queries
       NEO4J_server_memory_heap_initial__size: 512M
       NEO4J_server_memory_heap_max__size: 1G
       NEO4J_server_memory_pagecache_size: 1G
     ports:
-      - "7474:7474" # HTTP
-      - "7687:7687" # Bolt
+      - "7474:7474"
+      - "7687:7687"
     volumes:
       - neo4jdata:/data
-      - ./data:/var/lib/neo4j/import # Map for LOAD CSV
+      - ./data:/var/lib/neo4j/import # LOAD CSV reads from here
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7474 || exit 1"]
       interval: 5s

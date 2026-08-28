@@ -1,12 +1,7 @@
--- Q4 · Film consigliati a partire da un titolo, per cast e troupe condivisi
+-- Films sharing the most cast and crew with a given title.
 --
--- COUNT(DISTINCT tp2.nconst) e non COUNT(*): una persona che compare due volte
--- nello stesso film con ruoli diversi (per esempio regista e sceneggiatore)
--- deve contare una volta sola, esattamente come count(DISTINCT p) in Cypher.
--- Nessun filtro su category: qui contano tutti i ruoli, e la controparte Cypher
--- attraversa infatti tutti e tre i tipi di relazione.
---
--- Raggruppamento e ordinamento su tconst: i titoli omonimi sono film diversi.
+-- COUNT(DISTINCT nconst) rather than COUNT(*): someone credited twice on the
+-- same film must count once. No category filter, since all roles count here.
 
 SELECT t2.tconst,
        t2.primaryTitle AS title,

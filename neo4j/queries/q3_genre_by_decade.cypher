@@ -1,7 +1,6 @@
-// Q3 · Rating medio per genere, film del decennio 2010-2019
-//
-// In Cypher il HAVING non esiste: l'aggregazione va materializzata con WITH e
-// filtrata dopo. E' la query in cui il modello relazionale risulta piu' diretto.
+// Average rating per genre for films released in the 2010s.
+// Cypher has no HAVING: the aggregate must be materialised with WITH and
+// filtered afterwards.
 
 MATCH (t:Title)-[:HAS_GENRE]->(g:Genre)
 WHERE t.startYear >= 2010

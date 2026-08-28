@@ -43,16 +43,14 @@ CREATE TABLE Title_Principals (
     PRIMARY KEY (tconst, nconst, ordering)
 );
 
--- Indices to optimize analytical queries
 CREATE INDEX idx_principals_nconst ON Title_Principals(nconst);
 CREATE INDEX idx_principals_tconst ON Title_Principals(tconst);
 CREATE INDEX idx_titles_startYear ON Titles(startYear);
 CREATE INDEX idx_title_genres_genre_id ON Title_Genres(genre_id);
 CREATE INDEX idx_title_genres_tconst ON Title_Genres(tconst);
 
--- In Neo4j il ruolo e' il tipo di relazione (ACTED_IN / DIRECTED / WORKED_ON):
--- filtrare per ruolo e' gratis. Perche' il confronto sia equo, Postgres deve
--- poter fare lo stesso con un accesso indicizzato invece che con un filtro
--- applicato dopo la scansione.
+-- In Neo4j the role is the relationship type, so filtering by role is free.
+-- These make the equivalent SQL filter an indexed access rather than a
+-- post-scan filter, keeping the comparison fair.
 CREATE INDEX idx_principals_category ON Title_Principals(category);
 CREATE INDEX idx_principals_cat_tconst_nconst ON Title_Principals(category, tconst, nconst);

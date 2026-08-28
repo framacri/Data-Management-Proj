@@ -1,11 +1,13 @@
-> **Baseline congelata — NON usare questi numeri nel report finale.**
->
-> Misure ottenute prima degli interventi di `fix/benchmark-fairness`, quando i due database
-> non contenevano lo stesso insieme di archi e tre query su quattro facevano domande diverse
-> nei due sistemi. Conservate come termine di paragone per la sezione "cosa avevamo misurato
-> e perché non valeva" del report finale.
->
-> Vedi `audit.md` (B1–B5) per il dettaglio dei problemi.
+# Superseded measurements, kept for comparison
+
+**Do not use these numbers.** They were taken before the corrections described in section 10 of
+[PROJECT_REPORT.md](../PROJECT_REPORT.md), when the two databases held different edge sets and
+three of the four queries asked different questions in the two systems.
+
+They are kept because the difference between these numbers and the final ones is itself a
+result: it shows what an unverified comparison reports.
+
+---
 
 # IMDb DBMS Benchmark Results
 

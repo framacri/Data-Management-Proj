@@ -93,14 +93,20 @@ Counts are read from both databases by `verify_counts.py` and agree on every lin
 | Persons / `:Person` | 79,281 | 268,541 | 664,143 |
 | Genres / `:Genre` | 22 | 24 | 26 |
 | `HAS_GENRE` | 26,376 | 84,666 | 208,477 |
-| `ACTED_IN` | 100,902 | 347,502 | 917,222 |
+| `ACTED_IN` | 98,152 | 337,894 | 894,367 |
 | `DIRECTED` | 10,890 | 39,774 | 114,587 |
-| `WORKED_ON` | 109,735 | 360,925 | 917,829 |
-| **Person–title links** | **221,527** | **748,201** | **1,949,638** |
+| `WORKED_ON` | 109,678 | 360,502 | 916,494 |
+| **Person–title links** | **218,720** | **738,170** | **1,925,448** |
+
+Link counts are distinct `(title, person, role)` triples, which is what the graph holds: a
+person credited twice on the same film in the same role produces one relationship, since the
+load uses `MERGE`. `Title_Principals` holds slightly more *rows* than that — 1,949,638 at the
+lowest threshold — which is why `verify_counts.py` compares distinct keys rather than row
+counts on the relational side.
 
 The proposal estimated ~200,000 titles and ~3,000,000 person–title relationships. That was an
 overestimate of about one order of magnitude, made before applying the filters to the real
-files; the working set at the reference threshold is ~37k titles and ~748k links.
+files; the working set at the reference threshold is ~37k titles and ~738k links.
 
 ## 5. Data models
 

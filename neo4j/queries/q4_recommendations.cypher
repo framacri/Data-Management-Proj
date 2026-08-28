@@ -1,12 +1,8 @@
-// Q4 · Film consigliati a partire da un titolo, per cast e troupe condivisi
+// Films sharing the most cast and crew with a given title.
 //
-// I tre tipi di relazione insieme coprono esattamente le righe di
-// Title_Principals: la controparte SQL non filtra su category, quindi neanche
-// questa query lo fa. count(DISTINCT p) perche' una persona legata a un film da
-// piu' relazioni WORKED_ON (ruoli diversi) deve contare una volta sola.
-//
-// Come nella Q2, il WITH esplicito su m2 raggruppa per identita' del nodo:
-// raggruppare su m2.primaryTitle fonderebbe i film omonimi in un gruppo solo.
+// All three relationship types together cover exactly the rows of
+// Title_Principals, matching the unfiltered SQL counterpart. The WITH groups by
+// node identity, so homonymous films stay distinct.
 
 MATCH (m1:Title {tconst: $tconst})<-[:ACTED_IN|DIRECTED|WORKED_ON]-(p:Person)
       -[:ACTED_IN|DIRECTED|WORKED_ON]->(m2:Title)

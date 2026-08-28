@@ -1,9 +1,3 @@
-"""Genera le tabelle del report a partire da analysis/results.csv.
-
-Invariante del progetto: nessun numero finisce nel report se non viene da qui.
-Le tabelle si rigenerano, non si trascrivono a mano — cosi' non possono divergere
-dai dati come era successo fra PROJECT_REPORT.md ed experiment_results.md.
-"""
 import argparse
 import csv
 import os
@@ -15,85 +9,86 @@ from config import ANALYSIS_DIR
 RESULTS_CSV = os.path.join(ANALYSIS_DIR, "results.csv")
 
 LABELS = {
-    "q2_most_connected": "Q2 · Attori più connessi",
-    "q3_genre_by_decade": "Q3 · Rating medio per genere",
-    "q4_recommendations": "Q4 · Film consigliati",
+    "q2_most_connected": "Q2 - most connected actors",
+    "q3_genre_by_decade": "Q3 - average rating by genre",
+    "q4_recommendations": "Q4 - recommendations",
 }
 
 
 def label_for(case):
-    if case.startswith("q1_distanza_"):
-        return f"Q1 · Gradi di separazione, distanza {case.rsplit('_', 1)[1]}"
+    if case.startswith("q1_distance_"):
+        return f"Q1 - degrees of separation, distance {case.rsplit('_', 1)[1]}"
     return LABELS.get(case, case)
 
 
 def load(path):
+    medians = {}
     grouped = defaultdict(list)
-    timeouts = set()
+    timed_out = set()
+
     with open(path) as f:
         for row in csv.DictReader(f):
             key = (int(row["min_votes"]), row["case"], row["system"])
             if row["note"] == "timeout" or not row["seconds"]:
-                timeouts.add(key)
+                timed_out.add(key)
             else:
                 grouped[key].append(float(row["seconds"]))
-    return grouped, timeouts
+
+    for key, times in grouped.items():
+        medians[key] = statistics.median(times)
+    for key in timed_out:
+        medians.setdefault(key, None)
+    return medians
 
 
 def fmt(seconds):
     if seconds is None:
         return "timeout"
-    if seconds < 1:
-        return f"{seconds * 1000:.1f} ms"
-    return f"{seconds:.3f} s"
+    return f"{seconds * 1000:.1f} ms" if seconds < 1 else f"{seconds:.3f} s"
+
+
+def ratio(pg, neo4j):
+    if pg is None or neo4j is None:
+        return "-"
+    if neo4j < pg:
+        return f"**Neo4j {pg / neo4j:.1f}x**"
+    if pg < neo4j:
+        return f"**PostgreSQL {neo4j / pg:.1f}x**"
+    return "tie"
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Generate the report tables from analysis/results.csv.")
     parser.add_argument("--results", default=RESULTS_CSV)
     args = parser.parse_args()
 
     if not os.path.exists(args.results):
-        raise SystemExit(f"{args.results} non trovato — esegui prima il benchmark.")
+        raise SystemExit(f"{args.results} not found — run the benchmark first.")
 
-    grouped, timeouts = load(args.results)
-    thresholds = sorted({k[0] for k in list(grouped) + list(timeouts)}, reverse=True)
-    cases = sorted({k[1] for k in list(grouped) + list(timeouts)})
+    medians = load(args.results)
+    thresholds = sorted({key[0] for key in medians}, reverse=True)
+    cases = sorted({key[1] for key in medians})
 
-    for mv in thresholds:
-        print(f"\n### Soglia: numVotes >= {mv}\n")
-        print("| Query | PostgreSQL | Neo4j | Rapporto |")
+    for min_votes in thresholds:
+        print(f"\n### Threshold: numVotes >= {min_votes}\n")
+        print("| Query | PostgreSQL | Neo4j | Ratio |")
         print("|---|---:|---:|---|")
         for case in cases:
-            pg = grouped.get((mv, case, "postgresql"))
-            n4 = grouped.get((mv, case, "neo4j"))
-            if pg is None and (mv, case, "postgresql") not in timeouts:
+            key = (min_votes, case)
+            if (*key, "postgresql") not in medians:
                 continue
-            pg_med = statistics.median(pg) if pg else None
-            n4_med = statistics.median(n4) if n4 else None
-
-            if pg_med and n4_med:
-                if n4_med < pg_med:
-                    ratio = f"**Neo4j {pg_med / n4_med:.1f}×**"
-                elif pg_med < n4_med:
-                    ratio = f"**PostgreSQL {n4_med / pg_med:.1f}×**"
-                else:
-                    ratio = "pari"
-            else:
-                ratio = "—"
-            print(f"| {label_for(case)} | {fmt(pg_med)} | {fmt(n4_med)} | {ratio} |")
+            pg = medians[(*key, "postgresql")]
+            neo4j = medians.get((*key, "neo4j"))
+            print(f"| {label_for(case)} | {fmt(pg)} | {fmt(neo4j)} | {ratio(pg, neo4j)} |")
 
     if len(thresholds) > 1:
-        print("\n### Scaling della Q1 (mediane)\n")
-        header = " | ".join(f"≥{mv} voti" for mv in thresholds)
-        print(f"| Caso | Sistema | {header} |")
+        print("\n### Q1 scaling (medians)\n")
+        print("| Case | System | " + " | ".join(f">={mv} votes" for mv in thresholds) + " |")
         print("|---|---|" + "---:|" * len(thresholds))
         for case in [c for c in cases if c.startswith("q1_")]:
             for system, name in (("postgresql", "PostgreSQL"), ("neo4j", "Neo4j")):
-                cells = []
-                for mv in thresholds:
-                    times = grouped.get((mv, case, system))
-                    cells.append(fmt(statistics.median(times)) if times else "timeout")
+                cells = [fmt(medians.get((mv, case, system))) for mv in thresholds]
                 print(f"| {label_for(case)} | {name} | " + " | ".join(cells) + " |")
 
 

@@ -1,24 +1,16 @@
-"""Verifica che PostgreSQL e Neo4j contengano esattamente gli stessi dati.
-
-E' il cancello della Fase 1: finche' questo script non esce con 0, qualsiasi
-misura di performance confronta carichi di lavoro diversi ed e' da buttare.
-
-Nota sul confronto degli archi: il caricamento Neo4j usa MERGE (idempotente sui
-retry), quindi due righe di principals con lo stesso (tconst, nconst) e la
-stessa categoria producono UN SOLO arco. Il conteggio Postgres corrispondente
-deve quindi essere DISTINCT sulle stesse chiavi, non un COUNT(*) di righe.
-"""
 import sys
 
 import psycopg2
 from neo4j import GraphDatabase
 
-from config import POSTGRES as PG, NEO4J_URI, NEO4J_AUTH
+from config import POSTGRES, NEO4J_URI, NEO4J_AUTH
 
 ACTING = "('actor', 'actress')"
 DIRECTING = "('director')"
 
-# (etichetta, SQL Postgres, Cypher Neo4j)
+# The Neo4j load uses MERGE, so two principal rows sharing (tconst, nconst) and
+# category produce a single relationship. The PostgreSQL side must therefore
+# count DISTINCT keys rather than rows.
 CHECKS = [
     ("Titles / :Title",
      "SELECT COUNT(*) FROM Titles",
@@ -32,83 +24,72 @@ CHECKS = [
     ("Title_Genres / HAS_GENRE",
      "SELECT COUNT(*) FROM Title_Genres",
      "MATCH ()-[r:HAS_GENRE]->() RETURN count(r)"),
-    ("attori / ACTED_IN",
+    ("actors / ACTED_IN",
      f"SELECT COUNT(DISTINCT (tconst, nconst)) FROM Title_Principals WHERE category IN {ACTING}",
      "MATCH ()-[r:ACTED_IN]->() RETURN count(r)"),
-    ("registi / DIRECTED",
+    ("directors / DIRECTED",
      f"SELECT COUNT(DISTINCT (tconst, nconst)) FROM Title_Principals WHERE category IN {DIRECTING}",
      "MATCH ()-[r:DIRECTED]->() RETURN count(r)"),
-    ("altri ruoli / WORKED_ON",
+    ("other roles / WORKED_ON",
      f"SELECT COUNT(DISTINCT (tconst, nconst, category)) FROM Title_Principals "
      f"WHERE category NOT IN {ACTING} AND category NOT IN {DIRECTING}",
      "MATCH ()-[r:WORKED_ON]->() RETURN count(r)"),
 ]
 
-# Controlli che devono valere solo su Postgres.
 PG_ASSERTIONS = [
-    ("principals con nconst pendente",
+    ("principals with a dangling nconst",
      "SELECT COUNT(*) FROM Title_Principals tp "
-     "LEFT JOIN Persons p ON tp.nconst = p.nconst WHERE p.nconst IS NULL",
-     0),
-    ("titoli senza rating",
-     "SELECT COUNT(*) FROM Titles WHERE averageRating IS NULL",
-     0),
+     "LEFT JOIN Persons p ON tp.nconst = p.nconst WHERE p.nconst IS NULL", 0),
+    ("titles without a rating",
+     "SELECT COUNT(*) FROM Titles WHERE averageRating IS NULL", 0),
 ]
-
-
-def scalar_pg(cur, sql):
-    cur.execute(sql)
-    return cur.fetchone()[0]
-
-
-def scalar_neo4j(session, cypher):
-    return session.run(cypher).single()[0]
 
 
 def main():
     try:
-        conn = psycopg2.connect(**PG)
+        conn = psycopg2.connect(**POSTGRES)
     except psycopg2.OperationalError as exc:
-        sys.exit(f"PostgreSQL non raggiungibile su {PG['host']}:{PG['port']} — {exc}")
+        sys.exit(f"PostgreSQL unreachable on {POSTGRES['host']}:{POSTGRES['port']} — {exc}")
 
     driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
     try:
         driver.verify_connectivity()
     except Exception as exc:
-        sys.exit(f"Neo4j non raggiungibile su {NEO4J_URI} — {exc}")
+        sys.exit(f"Neo4j unreachable on {NEO4J_URI} — {exc}")
 
     failures = 0
     width = max(len(label) for label, _, _ in CHECKS)
-
-    print(f"{'':<{width}}  {'PostgreSQL':>12}  {'Neo4j':>12}   esito")
+    print(f"{'':<{width}}  {'PostgreSQL':>12}  {'Neo4j':>12}   status")
     print("-" * (width + 44))
 
     with conn.cursor() as cur, driver.session() as session:
         for label, sql, cypher in CHECKS:
-            pg_n = scalar_pg(cur, sql)
-            n4_n = scalar_neo4j(session, cypher)
-            ok = pg_n == n4_n
-            failures += not ok
-            mark = "ok" if ok else f"DIVERGE ({pg_n - n4_n:+,})"
-            print(f"{label:<{width}}  {pg_n:>12,}  {n4_n:>12,}   {mark}")
+            cur.execute(sql)
+            pg_count = cur.fetchone()[0]
+            neo4j_count = session.run(cypher).single()[0]
+            match = pg_count == neo4j_count
+            failures += not match
+            status = "ok" if match else f"MISMATCH ({pg_count - neo4j_count:+,})"
+            print(f"{label:<{width}}  {pg_count:>12,}  {neo4j_count:>12,}   {status}")
 
         print()
         for label, sql, expected in PG_ASSERTIONS:
-            actual = scalar_pg(cur, sql)
-            ok = actual == expected
-            failures += not ok
-            print(f"{label:<{width}}  {actual:>12,}  {'':>12}   {'ok' if ok else 'ATTESO ' + str(expected)}")
+            cur.execute(sql)
+            actual = cur.fetchone()[0]
+            failures += actual != expected
+            status = "ok" if actual == expected else f"EXPECTED {expected}"
+            print(f"{label:<{width}}  {actual:>12,}  {'':>12}   {status}")
 
     conn.close()
     driver.close()
-
     print()
+
     if failures:
-        print(f"{failures} controlli falliti — i due database NON contengono gli stessi dati.")
-        print("Non proseguire con il benchmark: le misure non sarebbero confrontabili.")
+        print(f"{failures} checks failed: the two databases do not hold the same data.")
+        print("Do not run the benchmark — the measurements would not be comparable.")
         return 1
 
-    print("Tutti i controlli passati: i due database contengono gli stessi dati.")
+    print("All checks passed: the two databases hold the same data.")
     return 0
 
 
