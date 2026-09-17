@@ -358,7 +358,8 @@ def menu(benchmark_cases, state):
             if choice == "a":
                 state.accesses = not state.accesses
             elif choice == "w":
-                warm_up(cases, state)
+                # Only the benchmark's queries: an extra one may still be half-written.
+                warm_up(benchmark_cases, state)
             elif choice.isdigit() and 1 <= int(choice) <= len(cases):
                 case = cases[int(choice) - 1]
                 if case.get("extra"):
