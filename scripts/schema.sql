@@ -37,17 +37,20 @@ CREATE TABLE Title_Genres (
 
 CREATE TABLE Title_Principals (
     tconst VARCHAR(15) REFERENCES Titles(tconst),
-    nconst VARCHAR(15),
+    nconst VARCHAR(15) REFERENCES Persons(nconst),
     ordering INTEGER,
     category VARCHAR(255),
-    job TEXT,
-    characters TEXT,
     PRIMARY KEY (tconst, nconst, ordering)
 );
 
--- Indices to optimize analytical queries
 CREATE INDEX idx_principals_nconst ON Title_Principals(nconst);
 CREATE INDEX idx_principals_tconst ON Title_Principals(tconst);
 CREATE INDEX idx_titles_startYear ON Titles(startYear);
 CREATE INDEX idx_title_genres_genre_id ON Title_Genres(genre_id);
 CREATE INDEX idx_title_genres_tconst ON Title_Genres(tconst);
+
+-- In Neo4j the role is the relationship type, so filtering by role is free.
+-- These make the equivalent SQL filter an indexed access rather than a
+-- post-scan filter, keeping the comparison fair.
+CREATE INDEX idx_principals_category ON Title_Principals(category);
+CREATE INDEX idx_principals_cat_tconst_nconst ON Title_Principals(category, tconst, nconst);

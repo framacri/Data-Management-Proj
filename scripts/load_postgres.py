@@ -1,60 +1,51 @@
-import psycopg2
+import argparse
 import os
 
-DB_HOST = "localhost"
-DB_PORT = "15432"
-DB_USER = "imdb"
-DB_PASS = "imdbpassword"
-DB_NAME = "imdb"
-DATA_DIR = "data"
+import psycopg2
 
-def connect():
-    return psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASS,
-        dbname=DB_NAME
-    )
+from config import POSTGRES, DEFAULT_MIN_VOTES, data_path
 
-def load_data():
-    conn = connect()
+SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
+
+# Persons must precede Title_Principals, which has a foreign key to it.
+TABLES = [
+    ("Titles", "pg_titles.csv"),
+    ("Persons", "pg_persons.csv"),
+    ("Genres", "pg_genres.csv"),
+    ("Title_Genres", "pg_title_genres.csv"),
+    ("Title_Principals", "pg_principals.csv"),
+]
+
+
+def load_data(min_votes):
+    conn = psycopg2.connect(**POSTGRES)
     conn.autocommit = True
     cursor = conn.cursor()
-    
-    # Load Schema
+
     print("Applying schema...")
-    with open("scripts/schema.sql", "r") as f:
+    with open(SCHEMA_PATH) as f:
         cursor.execute(f.read())
-        
-    print("Loading pg_titles.csv...")
-    with open(os.path.join(DATA_DIR, "pg_titles.csv"), "r") as f:
-        next(f) # Skip header
-        cursor.copy_expert("COPY Titles FROM STDIN WITH CSV", f)
-        
-    print("Loading pg_persons.csv...")
-    with open(os.path.join(DATA_DIR, "pg_persons.csv"), "r") as f:
-        next(f)
-        cursor.copy_expert("COPY Persons FROM STDIN WITH CSV", f)
-        
-    print("Loading pg_genres.csv...")
-    with open(os.path.join(DATA_DIR, "pg_genres.csv"), "r") as f:
-        next(f)
-        cursor.copy_expert("COPY Genres FROM STDIN WITH CSV", f)
-        
-    print("Loading pg_title_genres.csv...")
-    with open(os.path.join(DATA_DIR, "pg_title_genres.csv"), "r") as f:
-        next(f)
-        cursor.copy_expert("COPY Title_Genres FROM STDIN WITH CSV", f)
-        
-    print("Loading pg_principals.csv...")
-    with open(os.path.join(DATA_DIR, "pg_principals.csv"), "r") as f:
-        next(f)
-        cursor.copy_expert("COPY Title_Principals FROM STDIN WITH CSV", f)
-        
-    print("Data loading complete!")
+
+    for table, filename in TABLES:
+        path = data_path(min_votes, filename)
+        print(f"Loading {table} from {path}...")
+        with open(path) as f:
+            next(f)
+            cursor.copy_expert(f"COPY {table} FROM STDIN WITH CSV", f)
+
+    # COPY does not update planner statistics. Without this, plans depend on when
+    # autovacuum happens to run, and queries issued in the meantime are planned
+    # blind. See PROJECT_REPORT.md, section 10.
+    print("ANALYZE...")
+    cursor.execute("ANALYZE")
+
+    print("Done.")
     cursor.close()
     conn.close()
 
+
 if __name__ == "__main__":
-    load_data()
+    parser = argparse.ArgumentParser(description="Load the PostgreSQL tables from the CSVs.")
+    parser.add_argument("--min-votes", type=int, default=DEFAULT_MIN_VOTES,
+                        help="vote threshold, selecting the data/mv<threshold>/ directory")
+    load_data(parser.parse_args().min_votes)
