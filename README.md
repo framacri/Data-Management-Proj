@@ -127,6 +127,14 @@ With accesses on, a second, instrumented execution reports PostgreSQL buffer pag
 the uninstrumented runs, and the two units are not equivalent: an 8 KB page against a
 single record.
 
+With `--extra-queries` the menu also lists query files added to `postgres/queries/` or
+`neo4j/queries/` beyond the benchmark's four, for a query written on request. `q5_x.sql` and
+`q5_x.cypher` pair up by name and run on both engines with the usual result comparison; a file on
+one side runs on that engine only. The directories are rescanned at every menu, so a file saved
+while the demo is open appears at once. These queries take no parameters and run read-only on
+both engines, so a stray write is rejected instead of altering the verified data. Without the
+flag the menu is unchanged.
+
 Non-interactive, for rehearsal:
 
 ```bash

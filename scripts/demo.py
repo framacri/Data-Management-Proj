@@ -1,4 +1,5 @@
 import argparse
+import os
 import re
 import statistics
 import sys
@@ -9,10 +10,11 @@ import pandas as pd
 import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2 import extensions, extras
-from neo4j import GraphDatabase, Query
+from neo4j import READ_ACCESS, GraphDatabase, Query
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 
-from benchmark import THE_MATRIX, build_cases, load_pairs, normalise
+from benchmark import (NEO4J_QUERY_DIR, PG_QUERY_DIR, THE_MATRIX, build_cases, load_pairs,
+                       load_query, normalise)
 from config import POSTGRES, NEO4J_URI, NEO4J_AUTH
 
 # Title counts produced by each vote threshold (PROJECT_REPORT.md, section 4). Detecting the
@@ -30,6 +32,8 @@ RUNS = 3
 SETTLE_S = 0.1
 ENGINES = {"p": ("postgresql",), "n": ("neo4j",), "b": ("postgresql", "neo4j")}
 FLAG_ENGINES = {"pg": "p", "neo4j": "n", "both": "b"}
+BENCHMARK_QUERIES = {"q1_shortest_path", "q2_most_connected", "q3_genre_by_decade",
+                     "q4_recommendations"}
 
 # Makes a running PostgreSQL query cancellable with Ctrl-C. Without it the interrupt is only
 # delivered once the query has finished, which on Q2 at the lowest threshold is seconds away.
@@ -76,14 +80,18 @@ def run_postgres(conn, sql, params):
         start = time.perf_counter()
         try:
             cursor.execute(sql, params or None)
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() if cursor.description else []
         except (pg_errors.QueryCanceled, KeyboardInterrupt) as exc:
             # wait_select turns Ctrl-C into a server-side cancel, which also arrives as
             # QueryCanceled: only the message tells it apart from statement_timeout.
             conn.rollback()
             raise Failed("timed out" if "timeout" in str(exc) else "interrupted") from None
+        except psycopg2.Error as exc:
+            # A query written on the spot can be wrong; report it and keep the demo running.
+            conn.rollback()
+            raise Failed(f"error: {first_line(exc)}") from None
         elapsed = time.perf_counter() - start
-        columns = [column.name for column in cursor.description]
+        columns = [column.name for column in cursor.description or []]
     conn.commit()
     return columns, normalise(rows), elapsed
 
@@ -98,9 +106,15 @@ def run_neo4j(session, cypher, params):
     except Neo4jError as exc:
         if "timeout" in str(exc).lower() or "terminated" in str(exc).lower():
             raise Failed("timed out") from None
-        raise
+        raise Failed(f"error: {first_line(exc)}") from None
     elapsed = time.perf_counter() - start
     return columns, normalise(tuple(r.values()) for r in records), elapsed
+
+
+def first_line(exc):
+    message = getattr(exc, "pgerror", None) or getattr(exc, "message", None) or str(exc)
+    lines = message.strip().splitlines()
+    return re.sub(r"^ERROR:\s*", "", lines[0]) if lines else type(exc).__name__
 
 
 def median_time(run_once, runs):
@@ -123,13 +137,22 @@ def postgres_accesses(conn, sql, params):
         except (pg_errors.QueryCanceled, KeyboardInterrupt):
             conn.rollback()
             raise Failed("instrumented run interrupted") from None
+        except psycopg2.Error as exc:
+            conn.rollback()
+            raise Failed(f"instrumented run: {first_line(exc)}") from None
     conn.commit()
     return plan["Shared Hit Blocks"] + plan["Shared Read Blocks"]
 
 
 def neo4j_accesses(session, cypher, params):
-    profile = session.run(Query("PROFILE " + cypher, timeout=TIMEOUT_S), **params).consume().profile
-    match = re.search(r"Total database accesses: (\d+)", profile["args"]["string-representation"])
+    try:
+        profile = session.run(Query("PROFILE " + cypher, timeout=TIMEOUT_S), **params).consume().profile
+    except Neo4jError as exc:
+        raise Failed(f"instrumented run: {first_line(exc)}") from None
+    match = profile and re.search(r"Total database accesses: (\d+)",
+                                  profile["args"]["string-representation"])
+    if not match:
+        raise Failed("instrumented run: no access count in the profile")
     return int(match.group(1))
 
 
@@ -157,12 +180,50 @@ def without_comments(text, marker):
     return "\n".join(lines).strip()
 
 
+def extra_cases():
+    # Query files beyond the four of the benchmark, e.g. one written on request during the
+    # discussion. q5_x.sql and q5_x.cypher pair up by name; a file on one side runs on that engine
+    # only. The directories are read again at every menu, so a new file shows up without
+    # restarting, and the file is read again at every run, so a fix is picked up at once.
+    def stems(directory, extension):
+        return {name[:-len(extension) - 1] for name in os.listdir(directory)
+                if name.endswith("." + extension) and not name.startswith(".")}
+
+    sql, cypher = stems(PG_QUERY_DIR, "sql"), stems(NEO4J_QUERY_DIR, "cypher")
+    cases = []
+    for stem in sorted((sql | cypher) - BENCHMARK_QUERIES):
+        engines = " + ".join(e for e, present in (("SQL", stem in sql), ("Cypher", stem in cypher))
+                             if present)
+        cases.append({"name": stem, "case": stem, "extra": True,
+                      "short": f"{stem}  (extra · {engines})",
+                      "has_sql": stem in sql, "has_cypher": stem in cypher,
+                      "pg_params": {}, "neo4j_params": {}})
+    return cases
+
+
+def load_extra(case):
+    try:
+        if case["has_sql"]:
+            case["pg_sql"] = load_query(PG_QUERY_DIR, case["name"], "sql")
+        if case["has_cypher"]:
+            case["cypher"] = load_query(NEO4J_QUERY_DIR, case["name"], "cypher")
+    except OSError as exc:
+        raise Failed(f"cannot read the query file: {exc}") from None
+
+
+def systems_of(case):
+    return [system for system, present in (("postgresql", case.get("pg_sql") is not None),
+                                           ("neo4j", case.get("cypher") is not None)) if present]
+
+
 def show_query_text(case):
     print(f"\n{'─' * 72}\n{case['short']}\n{'─' * 72}")
-    print("\n  PostgreSQL (SQL)\n")
-    print("\n".join("    " + line for line in without_comments(case["pg_sql"], "--").splitlines()))
-    print("\n  Neo4j (Cypher)\n")
-    print("\n".join("    " + line for line in without_comments(case["cypher"], "//").splitlines()))
+    if case.get("pg_sql") is not None:
+        print("\n  PostgreSQL (SQL)\n")
+        print("\n".join("    " + line for line in without_comments(case["pg_sql"], "--").splitlines()))
+    if case.get("cypher") is not None:
+        print("\n  Neo4j (Cypher)\n")
+        print("\n".join("    " + line for line in without_comments(case["cypher"], "//").splitlines()))
     params = case["pg_params"]
     if params:
         print(f"\n  parameters: {params}")
@@ -170,10 +231,32 @@ def show_query_text(case):
 
 def run_case(case, engine_key, state):
     conn, session = state.conn, state.session
+    extra = case.get("extra", False)
+    if extra:
+        try:
+            load_extra(case)
+        except Failed as failure:
+            print(f"\n  {failure}")
+            return
+        # A query written on the spot runs several times: read-only on both engines, so a
+        # stray CREATE or UPDATE is rejected instead of changing the data the demo just verified.
+        conn.rollback()
+        conn.readonly = True
+        session = state.read_session
     print(f"\n{'═' * 72}\n{case['short']}\n{'═' * 72}")
 
+    try:
+        outcome = run_systems(case, engine_key, state, conn, session)
+    finally:
+        if extra:
+            conn.rollback()
+            conn.readonly = False
+    summarise(outcome, state.accesses, state.runs)
+
+
+def run_systems(case, engine_key, state, conn, session):
     outcome = {}
-    for system in ENGINES[engine_key]:
+    for system in [s for s in ENGINES[engine_key] if s in systems_of(case)]:
         try:
             if system == "postgresql":
                 columns, rows, elapsed = median_time(
@@ -191,8 +274,7 @@ def run_case(case, engine_key, state):
         outcome[system] = (rows, elapsed, accesses)
         name = "PostgreSQL" if system == "postgresql" else "Neo4j"
         show_table(f"{name} · {format_time(elapsed)}", columns, rows, state.max_rows)
-
-    summarise(outcome, state.accesses, state.runs)
+    return outcome
 
 
 def describe_runs(runs):
@@ -255,11 +337,13 @@ def warm_up(cases, state, neo4j_rounds=5):
 
 def header(state):
     print(f"\nDataset: numVotes >= {state.min_votes:,} · {state.titles:,} titles"
-          f" · accesses {'ON' if state.accesses else 'off'}")
+          f" · accesses {'ON' if state.accesses else 'off'}"
+          + (" · extra queries ON" if state.extra else ""))
 
 
-def menu(cases, state):
+def menu(benchmark_cases, state):
     while True:
+        cases = benchmark_cases + (extra_cases() if state.extra else [])
         header(state)
         for i, case in enumerate(cases, 1):
             print(f"  {i}) {case['short']}")
@@ -267,6 +351,8 @@ def menu(cases, state):
         choice = input("\n> ").strip().lower()
 
         try:
+            if choice == "":
+                continue
             if choice == "q":
                 return
             if choice == "a":
@@ -275,25 +361,36 @@ def menu(cases, state):
                 warm_up(cases, state)
             elif choice.isdigit() and 1 <= int(choice) <= len(cases):
                 case = cases[int(choice) - 1]
+                if case.get("extra"):
+                    load_extra(case)
+                available = systems_of(case)
+                default = "b" if len(available) == 2 else available[0][0]
+                options = {"b": "p) PostgreSQL  n) Neo4j  b) both", "p": "p) PostgreSQL",
+                           "n": "n) Neo4j"}[default]
                 while True:
-                    engine = input("  engine: p) PostgreSQL  n) Neo4j  b) both  t) show query"
-                                   " text  [b] > ").strip().lower() or "b"
+                    engine = input(f"  engine: {options}  t) show query text  [{default}] > "
+                                   ).strip().lower() or default
                     if engine == "t":
                         show_query_text(case)
                         continue
-                    if engine in ENGINES:
+                    if engine in (ENGINES if default == "b" else {default}):
                         run_case(case, engine, state)
                     else:
                         print("  ?")
                     break
             else:
                 print("  ?")
+        except Failed as failure:
+            print(f"  {failure}")
         except KeyboardInterrupt:
             # Leaves the session in an unknown state mid-stream; start a clean one.
             print("\n  interrupted")
             state.conn.rollback()
+            state.conn.readonly = False
             state.session.close()
             state.session = state.driver.session()
+            state.read_session.close()
+            state.read_session = state.driver.session(default_access_mode=READ_ACCESS)
 
 
 def label_cases(cases, conn, min_votes, tconst):
@@ -346,6 +443,9 @@ def main():
                         help="threshold of the loaded data (detected when omitted)")
     parser.add_argument("--tconst", default=THE_MATRIX, help="starting title for Q4")
     parser.add_argument("--max-rows", type=int, default=10)
+    parser.add_argument("--extra-queries", action="store_true",
+                        help="also list query files added to postgres/queries or neo4j/queries "
+                             "beyond the four of the benchmark (read-only)")
     parser.add_argument("--runs", type=int, default=RUNS,
                         help=f"back-to-back runs per engine, median reported (default {RUNS})")
     args = parser.parse_args()
@@ -358,7 +458,8 @@ def main():
 
     state = SimpleNamespace(conn=conn, driver=driver, session=session, min_votes=min_votes,
                             titles=titles, accesses=args.accesses, max_rows=args.max_rows,
-                            runs=max(1, args.runs))
+                            runs=max(1, args.runs), extra=args.extra_queries,
+                            read_session=driver.session(default_access_mode=READ_ACCESS))
     try:
         if args.warmup:
             warm_up(cases, state)
@@ -373,6 +474,7 @@ def main():
         print()
     finally:
         state.session.close()
+        state.read_session.close()
         driver.close()
         conn.close()
 

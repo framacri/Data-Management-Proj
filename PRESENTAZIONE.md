@@ -299,12 +299,23 @@ sono unità diverse** e che il tempo mostrato viene dalle esecuzioni non strumen
 le tre esecuzioni e gli accessi), ed è un
 risultato già coperto dalla slide 9.
 
+### Se il prof chiede di scrivere una query
+
+Lanciare la demo con **`python scripts/demo.py --extra-queries`**: senza nuovi file il menu è
+identico. Scrivere la query in un file nuovo, per esempio `postgres/queries/q5_prof.sql` e/o
+`neo4j/queries/q5_prof.cypher` (stesso nome = eseguite su entrambi e confrontate riga per riga).
+Poi premere **Invio** nel menu: compare la voce `8) q5_prof`. Se la query ha un errore, la demo
+lo stampa e resta aperta; si corregge il file e si rilancia la stessa voce, che rilegge il file.
+Le query aggiuntive girano **in sola lettura**: un `CREATE` o un `UPDATE` viene rifiutato. Niente
+parametri: i valori vanno scritti nella query. Per un confronto valido servono un `ORDER BY`
+completo e le stesse colonne, altrimenti compare «RESULTS DIFFER».
+
 ### Checklist prima di entrare
 
 - [ ] `docker compose up -d --wait`, con entrambi i container `healthy`
 - [ ] `source .venv/bin/activate` dalla root del repository
 - [ ] `python scripts/verify_counts.py`: *All checks passed*
-- [ ] `python scripts/demo.py` → `w` (riscaldamento, ~9 s) → `a` (accessi ON) **prima** che inizi la presentazione, poi lasciare aperto
+- [ ] `python scripts/demo.py --extra-queries` → `w` (riscaldamento, ~9 s) → `a` (accessi ON) **prima** che inizi la presentazione, poi lasciare aperto
 - [ ] Terminale con **font grande** e sfondo chiaro; finestra abbastanza larga (≥100 colonne) per le tabelle di Q4
 - [ ] Chiudere Docker Desktop dashboard, browser pesanti, indicizzazione: la demo misura tempi
 - [ ] **Piano B**: screenshot dell'output di Q1 d4, Q3 e Q4 in una slide nascosta alla fine del deck
