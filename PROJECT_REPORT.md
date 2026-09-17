@@ -313,11 +313,65 @@ co-actor pairs by pointer-chasing rather than by hash-joining a table against it
 work: scan a large number of rows, group them, average. PostgreSQL's advantage comes from
 efficient sequential scans, hash aggregation and a planner with accurate statistics — *not* from
 columnar execution, since PostgreSQL is a row store. Cypher is also the more awkward of the two
-here, needing `WITH` to materialise the aggregate before it can be filtered.
+here, needing `WITH` to materialise the aggregate before it can be filtered. The largest single
+term, though, is neither the scan nor the aggregation but read amplification on the Neo4j side,
+quantified below.
 
 **Q4 is effectively a tie** (1.2–2.2 ms everywhere). Both systems start from one known node
 reached through an index and expand a small neighbourhood. There is nothing for either
 architecture to exploit, and neither wins.
+
+**Read amplification.** Neither system reads only what it needs, and the plans say how much each
+wastes. Neo4j keeps a node's relationships in a single linked list that mixes all types, and
+partitions that list by type only for *dense* nodes — above 50 relationships, by default. At the
+reference threshold a `:Title` carries 22.4 relationships on average (738,170 person links plus
+84,666 genre links, over 36,711 titles), so it stays under that threshold: every expansion from a
+title walks the entire chain and discards the records of the wrong type. It cannot stop early,
+because nothing orders the list by type. PostgreSQL pays an analogous toll wherever a role filter
+follows a `tconst` lookup — the index scan on `idx_principals_tconst` returns every principal of a
+title and `category` is applied afterwards as a filter.
+
+| Query | Traversed | Neo4j: read / returned | PostgreSQL: read / kept |
+|---|---|---:|---:|
+| Q1 · distance 4 | `ACTED_IN` | ~2.5× (modelled) ¹ | 21 / 10 = 2.1× |
+| Q2 | `ACTED_IN` | 859,547 / 337,894 = **2.5×** | 21 / 9 = **2.3×** |
+| Q3 | `HAS_GENRE` | 342,429 / 33,457 = **10.2×** | 84,666 / 33,457 = 2.5× ² |
+| Q4 | all three person→title types | 544 / 517 = **1.05×** | 25 / 24 = 1.04× |
+
+¹ `PROFILE` reports only the `ShortestPath` operator's total — 1,666 accesses at distance 4 — which
+it does not decompose; the figure is what the model predicts, not a measurement.
+² Counted in rows, not in accesses. The distinction is the subject of the next paragraph.
+
+**In Q1, Q2 and Q4 the amplification is near-symmetric, and cancels out of the comparison.** Both
+systems read a title's full principal list and throw away the roles they did not ask for, in
+almost the same proportion; it explains none of the 3.7× on Q2. Q4 is the control case: ask for
+*all three* person→title types and there is nothing left to discard, so both fall to ~1.05×. The
+model holds to within 1% where it can be checked — 23.4 records per title predicted, 23.4 measured
+on Q2 (859,547 / 36,711) and 23.6 on Q3 (342,429 / 14,501).
+
+**Q3 is where it stops cancelling, and the asymmetry is twofold.** `HAS_GENRE` is the *rarest*
+type on a title — 2.3 of its 22.4 relationships — so Neo4j walks 23.6 records to return 2.3 and
+discards 90% of what it reads. That single operator is 342,429 of the query's 438,346 accesses:
+**78% of the total work, of which nine tenths is thrown away.** PostgreSQL has no corresponding
+toll, because `Title_Genres` is a table of its own: normalisation puts every film–genre
+association in one place, with the principals in a different table entirely, and the plan reads it
+with a sequential scan — 84,666 rows in 458 pages — without ever opening `Title_Principals`.
+
+The second asymmetry is the price of a discarded read. PostgreSQL discards a comparable
+*proportion* — 84,666 rows scanned, 33,457 surviving the year join, 60% dropped — but reads them
+~185 to an 8 KB page, sequentially, so a discarded row costs a fraction of one page access. Neo4j
+dereferences each record individually, scattered across the relationship store, so a discarded
+record costs a full access. Four times the amplification at a much higher unit price: that
+product, and not the aggregation, is the 2.2×.
+
+This makes Q3 a result about *modelling*, not a verdict on either engine. Holding genre as a label
+or as a property of `:Title` would remove the traversal altogether and hand Q3 to Neo4j — at the
+cost of the two databases no longer representing the same thing, and of the `:Genre` entity the
+graph model exists to express. Reversing the traversal to start from `:Genre` is the more
+interesting variant: those are 24 dense nodes, which *do* carry type-partitioned chains, so the
+chain walk would disappear. It trades that gain against losing the `startYear` index seek, since
+every title of every genre would then be expanded before being filtered by year. We did not
+measure it, and it is the first thing we would measure next.
 
 **Readability.** Cypher is dramatically clearer for Q1 — one `shortestPath` call against a
 recursive CTE that cannot even express a proper visited set — and moderately clearer for Q2 and
