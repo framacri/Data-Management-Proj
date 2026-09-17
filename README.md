@@ -101,6 +101,34 @@ Repeats the pipeline at ≥10,000, ≥1,000 and ≥100 votes, accumulating into 
 `results.csv` so timings can be reported as curves rather than single numbers. Takes several
 hours, and stops if `verify_counts.py` fails at any threshold.
 
+### 8. Live demo
+
+```bash
+python scripts/demo.py
+```
+
+Runs a single query, on PostgreSQL, Neo4j or both, and prints the result tables, the time of that
+run and — with both — whether the two systems returned identical results. It executes exactly the
+queries of `benchmark.py`, built by the same code, so the demo cannot drift from what was measured.
+
+The loaded threshold is detected from the number of titles, and the matching Q1 pairs are used.
+From the menu: a number picks a query, then `p` / `n` / `b` picks the engine and `t` prints SQL
+and Cypher one after the other; `a` toggles accesses, `w` warms every query up, `q` quits. Warm
+up before presenting: a first execution measures caches and query compilation, not the query.
+
+With accesses on, a second, instrumented execution reports PostgreSQL buffer pages
+(`EXPLAIN (ANALYZE, BUFFERS)`) and Neo4j database accesses (`PROFILE`). The time always comes from
+the first, uninstrumented run, and the two units are not equivalent: an 8 KB page against a
+single record.
+
+Non-interactive, for rehearsal:
+
+```bash
+python scripts/demo.py --query q1 --distance 4 --engine both --accesses --warmup
+```
+
+A single run is an illustration, not a measurement; the medians of ten runs are in the report.
+
 ## The queries
 
 | | Question | Files |
@@ -118,7 +146,7 @@ of the comparison.
 
 ```
 scripts/           config, download, preprocess, load_*, verify_counts,
-                   find_pairs, benchmark, summarize_results, run_scale.sh
+                   find_pairs, benchmark, summarize_results, run_scale.sh, demo
 postgres/queries/  the four queries in SQL
 neo4j/queries/     the same four queries in Cypher
 data/mv<n>/        generated CSVs, one directory per dataset size
