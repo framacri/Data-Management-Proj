@@ -1,5 +1,6 @@
 import argparse
 import re
+import statistics
 import sys
 import time
 from types import SimpleNamespace
@@ -19,6 +20,14 @@ from config import POSTGRES, NEO4J_URI, NEO4J_AUTH
 # with the Q1 actor pairs of a different threshold.
 THRESHOLDS = {10118: 10000, 36711: 1000, 104931: 100}
 TIMEOUT_S = 300
+# Whichever engine runs first after an idle pause is slowed down for its first ~100 ms of work, and
+# in the demo there is always a pause before a query: a single run let that penalty decide Q3 and
+# Q4. So executions that start inside SETTLE_S are discarded, and the median of RUNS back-to-back
+# executions is reported. A run that alone outlasts SETTLE_S is kept: against its own cost the
+# penalty is noise, and discarding it would double the wait on Q1 and Q2. The benchmark needs
+# none of this: it has no pauses and alternates the order.
+RUNS = 3
+SETTLE_S = 0.1
 ENGINES = {"p": ("postgresql",), "n": ("neo4j",), "b": ("postgresql", "neo4j")}
 FLAG_ENGINES = {"pg": "p", "neo4j": "n", "both": "b"}
 
@@ -94,6 +103,16 @@ def run_neo4j(session, cypher, params):
     return columns, normalise(tuple(r.values()) for r in records), elapsed
 
 
+def median_time(run_once, runs):
+    times, start = [], time.perf_counter()
+    while len(times) < runs:
+        began = time.perf_counter() - start
+        columns, rows, elapsed = run_once()
+        if began >= SETTLE_S or elapsed >= SETTLE_S:
+            times.append(elapsed)
+    return columns, rows, statistics.median(times)
+
+
 def postgres_accesses(conn, sql, params):
     # A second, instrumented execution. The root node's buffer counts are cumulative over the
     # whole plan, the CTE included.
@@ -157,11 +176,13 @@ def run_case(case, engine_key, state):
     for system in ENGINES[engine_key]:
         try:
             if system == "postgresql":
-                columns, rows, elapsed = run_postgres(conn, case["pg_sql"], case["pg_params"])
+                columns, rows, elapsed = median_time(
+                    lambda: run_postgres(conn, case["pg_sql"], case["pg_params"]), state.runs)
                 accesses = (postgres_accesses(conn, case["pg_sql"], case["pg_params"])
                             if state.accesses else None)
             else:
-                columns, rows, elapsed = run_neo4j(session, case["cypher"], case["neo4j_params"])
+                columns, rows, elapsed = median_time(
+                    lambda: run_neo4j(session, case["cypher"], case["neo4j_params"]), state.runs)
                 accesses = (neo4j_accesses(session, case["cypher"], case["neo4j_params"])
                             if state.accesses else None)
         except Failed as failure:
@@ -171,10 +192,14 @@ def run_case(case, engine_key, state):
         name = "PostgreSQL" if system == "postgresql" else "Neo4j"
         show_table(f"{name} · {format_time(elapsed)}", columns, rows, state.max_rows)
 
-    summarise(outcome, state.accesses)
+    summarise(outcome, state.accesses, state.runs)
 
 
-def summarise(outcome, with_accesses):
+def describe_runs(runs):
+    return "single run" if runs == 1 else f"median of {runs} runs"
+
+
+def summarise(outcome, with_accesses, runs):
     if not outcome:
         return
     print(f"\n  {'':<12}{'time':>12}" + (f"{'accesses':>26}" if with_accesses else ""))
@@ -191,7 +216,8 @@ def summarise(outcome, with_accesses):
     (pg_rows, pg_time, _), (neo4j_rows, neo4j_time, _) = outcome["postgresql"], outcome["neo4j"]
     faster, ratio = (("Neo4j", pg_time / neo4j_time) if neo4j_time < pg_time
                      else ("PostgreSQL", neo4j_time / pg_time))
-    print(f"\n  → {faster} faster by {ratio:,.1f}× (single run — benchmark medians are in the report)")
+    print(f"\n  → {faster} faster by {ratio:,.1f}× ({describe_runs(runs)} — benchmark medians of ten"
+          " are in the report)")
     if pg_rows == neo4j_rows:
         print("  ✓ identical results in both systems")
     else:
@@ -201,7 +227,7 @@ def summarise(outcome, with_accesses):
                 print(f"    first difference at row {i}: PostgreSQL {a} / Neo4j {b}")
                 break
     if with_accesses:
-        print("  (time from the first run; accesses from a second, instrumented run —\n"
+        print(f"  (time: {describe_runs(runs)}; accesses from a further, instrumented run —\n"
               "   pages and records are different units)")
 
 
@@ -320,6 +346,8 @@ def main():
                         help="threshold of the loaded data (detected when omitted)")
     parser.add_argument("--tconst", default=THE_MATRIX, help="starting title for Q4")
     parser.add_argument("--max-rows", type=int, default=10)
+    parser.add_argument("--runs", type=int, default=RUNS,
+                        help=f"back-to-back runs per engine, median reported (default {RUNS})")
     args = parser.parse_args()
 
     conn, driver = connect()
@@ -329,7 +357,8 @@ def main():
                         conn, min_votes, args.tconst)
 
     state = SimpleNamespace(conn=conn, driver=driver, session=session, min_votes=min_votes,
-                            titles=titles, accesses=args.accesses, max_rows=args.max_rows)
+                            titles=titles, accesses=args.accesses, max_rows=args.max_rows,
+                            runs=max(1, args.runs))
     try:
         if args.warmup:
             warm_up(cases, state)

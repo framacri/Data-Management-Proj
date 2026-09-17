@@ -282,13 +282,21 @@ confronto è una curva, perché il rapporto dipende dalla dimensione dei dati. P
 | 0:45 | **Q4** | `7` → `b` | Matrix → Reloaded, Revolutions, Bound: il risultato si controlla a occhio. |
 | 0:30 | Riserva | `2` → `b`, oppure Neo4j Browser | Q1 a distanza 2, per mostrare che a distanza bassa il divario è piccolo. |
 
-**Gli accessi.** `a` si preme **dal menu principale** e resta attivo finché non lo si ripreme.
-Con gli accessi attivi ogni query viene eseguita **due volte** (la seconda è strumentata): Q1 d4 su
-PostgreSQL impiega ~4 s invece di ~2, mentre Q3 e Q4 restano istantanee. Conviene attivarli
-durante la preparazione e lasciarli accesi, dicendo esplicitamente che **pagine e record sono unità
-diverse** e che il tempo mostrato viene dalla prima esecuzione.
+**Come misura la demo.** Ogni motore esegue la query **tre volte di fila** e mostra la mediana,
+dopo aver scartato le esecuzioni che partono nei primi 100 ms. Serve perché, dopo una pausa (i
+13 minuti di slide), **il motore che parte per primo è rallentato per circa i suoi primi 100 ms di
+lavoro**, e nella demo parte sempre PostgreSQL. Con una sola esecuzione Q3 usciva spesso vinta da
+Neo4j (34 ms contro 27) e Q4 sbilanciata, al contrario del benchmark. Un'esecuzione che da sola dura
+più di 100 ms non viene scartata, quindi Q1 d4 non si allunga oltre le tre esecuzioni.
 
-**Q2 non si esegue dal vivo:** a ≥1.000 PostgreSQL impiega ~2,6 s (~5 s con gli accessi), ed è un
+**Gli accessi.** `a` si preme **dal menu principale** e resta attivo finché non lo si ripreme.
+Con gli accessi attivi si aggiunge **un'esecuzione strumentata** dopo le tre cronometrate: Q1 d4 su
+PostgreSQL impiega ~8 s in tutto invece di ~6, mentre Q3 e Q4 restano istantanee. Conviene
+attivarli durante la preparazione e lasciarli accesi, dicendo esplicitamente che **pagine e record
+sono unità diverse** e che il tempo mostrato viene dalle esecuzioni non strumentate.
+
+**Q2 non si esegue dal vivo:** a ≥1.000 PostgreSQL impiega ~2,6 s a esecuzione (~10 s in tutto con
+le tre esecuzioni e gli accessi), ed è un
 risultato già coperto dalla slide 9.
 
 ### Checklist prima di entrare
@@ -303,17 +311,20 @@ risultato già coperto dalla slide 9.
 
 ### Cosa aspettarsi dai tempi della demo
 
-È una **singola esecuzione**, non una mediana: i numeri oscillano. Riferimenti misurati durante le
-prove, a caldo:
+È la **mediana di tre esecuzioni**, non di dieci: i numeri oscillano un po'. Riferimenti misurati
+con la versione attuale di `demo.py`, PostgreSQL sempre per primo, dopo pause di 6 e 60 s:
 
-| | PostgreSQL | Neo4j |
-|---|---:|---:|
-| Q1 d4 | ~1,9 s | 1,5–4 ms |
-| Q3 | ~10 ms | ~23 ms |
-| Q4 | ~1,7 ms | 1,5–4 ms |
+| | PostgreSQL | Neo4j | Chi vince |
+|---|---:|---:|---|
+| Q1 d4 | ~1,9 s | 0,4–1,2 ms | Neo4j, sempre |
+| Q3 | 10–12 ms | 22–28 ms | PostgreSQL, 12 su 12 |
+| Q4 | 1,5–1,9 ms | 0,8–1,8 ms | pareggio (di solito Neo4j di poco) |
 
-Se Neo4j esce a centinaia di millisecondi, la query è a freddo: rilanciarla. Da dire: «è una
-singola esecuzione; le mediane su dieci run sono nel report.»
+Su Q1 d4 il rapporto della demo (~2.000–4.000×) può superare il 1.051× del report: sotto i 2 ms il
+tempo di Neo4j dipende da quanto il sistema è «caldo», e le tre esecuzioni di fila lo scaldano più
+dell'ordine alternato del benchmark. Da dire: «il report riporta il valore prudente». Se Neo4j esce
+a centinaia di millisecondi, la query è a freddo: rilanciarla. In ogni caso: «sono tre esecuzioni;
+le mediane su dieci run sono nel report.»
 
 ---
 

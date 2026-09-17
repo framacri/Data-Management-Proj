@@ -107,8 +107,8 @@ hours, and stops if `verify_counts.py` fails at any threshold.
 python scripts/demo.py
 ```
 
-Runs a single query, on PostgreSQL, Neo4j or both, and prints the result tables, the time of that
-run and — with both — whether the two systems returned identical results. It executes exactly the
+Runs a single query, on PostgreSQL, Neo4j or both, and prints the result tables, its time and —
+with both — whether the two systems returned identical results. It executes exactly the
 queries of `benchmark.py`, built by the same code, so the demo cannot drift from what was measured.
 
 The loaded threshold is detected from the number of titles, and the matching Q1 pairs are used.
@@ -116,9 +116,15 @@ From the menu: a number picks a query, then `p` / `n` / `b` picks the engine and
 and Cypher one after the other; `a` toggles accesses, `w` warms every query up, `q` quits. Warm
 up before presenting: a first execution measures caches and query compilation, not the query.
 
+The time shown is the median of three back-to-back executions (`--runs`), after discarding the
+executions that start within the first 100 ms. After an idle pause, such as the minutes spent on
+slides, whichever engine runs first is slowed down for about its first 100 ms of work. With a
+single run that alone reversed Q3 and Q4, whose whole cost is 1–25 ms. A run longer than 100 ms is
+never discarded, so Q1 and Q2 are not repeated needlessly.
+
 With accesses on, a second, instrumented execution reports PostgreSQL buffer pages
 (`EXPLAIN (ANALYZE, BUFFERS)`) and Neo4j database accesses (`PROFILE`). The time always comes from
-the first, uninstrumented run, and the two units are not equivalent: an 8 KB page against a
+the uninstrumented runs, and the two units are not equivalent: an 8 KB page against a
 single record.
 
 Non-interactive, for rehearsal:
@@ -127,7 +133,7 @@ Non-interactive, for rehearsal:
 python scripts/demo.py --query q1 --distance 4 --engine both --accesses --warmup
 ```
 
-A single run is an illustration, not a measurement; the medians of ten runs are in the report.
+Three runs are an illustration, not a measurement; the medians of ten runs are in the report.
 
 ## The queries
 
